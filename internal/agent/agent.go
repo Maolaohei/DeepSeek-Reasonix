@@ -810,6 +810,19 @@ func (a *Agent) Session() *Session {
 	return a.session
 }
 
+// NeedsVerificationReminder reports whether an ordinary (non-delivery) turn
+// has written files but ran no verification command. The controller injects a
+// soft reminder ("did you verify?") when this is true; once the model runs a
+// verification command the receipt clears and the reminder disappears
+// automatically — no per-session flag needed.
+func (a *Agent) NeedsVerificationReminder() bool {
+	if a == nil || a.deliveryProfile {
+		return false
+	}
+	return a.evidence.HasSuccessfulMutationOtherThan("remember") &&
+		!a.evidence.HasSuccessfulVerificationCommand()
+}
+
 // Provider returns the agent's provider — used by host-side reviewers (e.g.
 // /refine) that need an isolated no-tool call on the same endpoint.
 func (a *Agent) Provider() provider.Provider {

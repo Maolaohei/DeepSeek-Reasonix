@@ -95,3 +95,37 @@ evidence 追踪成功 mutation/verification/review/signoff,模型准备 finish �
 - 与现有 `read_subagent_result`/fleet 引用互补(拉取式升级,非替代)。
 - Phase 2(Mailbox Pattern)等异步底座稳定后再评估——同意。
 - 结论:Phase 1 是合理的下一里程碑;本轮不实施(保持稳定性优先)。
+
+### 实施级评估与决策(基于 evidence 基础设施复核)
+
+复核 `internal/evidence/evidence.go` 确认关键 API 齐备:
+`HasSuccessfulMutationOtherThan("remember")`(有成功变更)、
+`HasSuccessfulVerificationCommand()`(有分类为 verification 的 bash 命令)、
+`LatestSuccessfulMutationIndex()`(最新变更位置)。
+
+**决策 1:普通模式验证软提示 —— 建议实施(下一小版)**
+
+- 实现:复用上述 evidence API,在 turn 收尾组装(composeWithGoal 层)检查
+  `hasMutation && !hasVerification && !deliveryProfile` → 注入一段**软提示**:
+  "改动已写入;若存在对应验证(如 go test/pytest)请运行并报告结果,没有则简要说明。"
+- 注入位置选 **composeWithGoal 文本层**(不碰 finalReadinessCheck/ReadinessResult),
+  避免普通模式 UI 出现"未就绪"误导;只注入一次(模型准备结束且有写入无验证时),
+  不每轮刷。
+- 成本:约 40-60 行 + 测试。风险:低(措辞含"若存在…没有则说明",文档/配置类
+  写入模型可合理跳过);不阻止(普通模式保持轻量)。
+- 收益:普通模式长任务"改完直接宣布完成"的假完成率下降。
+
+**决策 2:阻止 finish —— 仅限 delivery(现状已满足,普通模式不做)**
+
+delivery 的 finalReadinessCheckFor + loopGuardAllowsFinal 已实现"无验证阻止/引导";
+普通模式强制 gate 会产生噪音(并非所有写入都需要测试),维持现状。
+
+**决策 3:A2A Phase 1 —— 建议独立小版本,非本轮**
+
+复核发现 Phase 1 并非"轻量":需要 jobs 共享存储扩展(notes 读写)+ 两个新工具
+(含 schema/审批/安全审查)+ **子代理侧支持**(启动时读取父代理 notes 并响应)。
+估算 0.5-1 天工作量,风险中等(notes 注入子代理 prompt 需防提示注入)。当前
+"文件 + read_subagent_result"已覆盖多数场景,不阻塞主线。
+
+**优先级排序**:验证闭环软提示(低成本高收益)→ A2A Phase 1(独立版本)→ 任务级
+checkpoint(低优先)。

@@ -181,6 +181,23 @@ func (c *Controller) composeWithGoal(
 		text = hb.String() + text
 	}
 
+	// Verification soft-reminder: in ordinary (non-delivery) sessions, a turn
+	// that wrote files but ran no verification command gets a gentle nudge so
+	// the model does not declare done without running the tests. The reminder
+	// is soft by design (docs/config edits have no test to run — the wording
+	// lets the model skip with a one-line reason) and self-clearing: once a
+	// verification command succeeds, the evidence receipt clears the flag and
+	// the block disappears.
+	if c.executor != nil && c.executor.NeedsVerificationReminder() {
+		const reminder = "<verification-reminder>\n" +
+			"You wrote files this turn without a successful verification command " +
+			"(e.g. go test, pytest, or the project's test suite). If a relevant " +
+			"verification exists, run it and report the result before concluding; " +
+			"if none applies (e.g. docs or config changes), say so in one line.\n" +
+			"</verification-reminder>\n\n"
+		text = reminder + text
+	}
+
 	if strings.TrimSpace(goal) != "" && goalStatus == GoalStatusRunning {
 		prefix := activeGoalBlock(goal, goalResearchMode)
 		if runtime := c.autoResearchRuntimeBlock(autoResearchTaskID); runtime != "" {

@@ -2,6 +2,7 @@ package control
 
 import (
 	"context"
+	"log/slog"
 	"time"
 
 	"reasonix/internal/refine"
@@ -58,14 +59,17 @@ func (c *Controller) maybeAutoRefineGate(reason string) {
 			return
 		}
 		ctx := context.Background()
-		conversation := c.refineTrajectory()
+		conversation := c.refineTrajectoryBounded(refineReviewChars)
 		notes := append(append([]refine.PromptNote{}, c.harnessStore(refine.ScopeProject).ListNotes()...),
 			c.harnessStore(refine.ScopeGlobal).ListNotes()...)
 		overview := refine.RenderOverview(notes, c.refineExtras()...)
 		history := refine.RenderHistory(c.harnessStore(refine.ScopeProject).ListRefinements())
 		review, err := c.refiner.ReviewGate(ctx, conversation, overview, history, reason, 0)
 		if err != nil {
-			c.notice("auto-refine review: " + err.Error())
+			// Automatic background refinement must never interrupt the user:
+			// log the failure, leave the harness untouched, and let the next
+			// interval/compaction retry.
+			slog.Warn("auto-refine review failed", "err", err)
 			return
 		}
 		if !review.ShouldRefine {
@@ -73,9 +77,11 @@ func (c *Controller) maybeAutoRefineGate(reason string) {
 		}
 		text, err := c.refineRun(ctx, refine.ScopeProject, "", review.Instructions)
 		if err != nil {
-			c.notice("auto-refine: " + err.Error())
+			slog.Warn("auto-refine apply failed", "err", err)
 			return
 		}
+		// Success is worth surfacing quietly as a notice (the harness learned
+		// something), but failures stay in the log.
 		c.notice(text)
 	}()
 }

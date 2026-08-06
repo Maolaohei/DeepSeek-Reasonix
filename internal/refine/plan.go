@@ -18,8 +18,10 @@ import (
 const (
 	// DefaultTimeout bounds one refine call.
 	DefaultTimeout = 120 * time.Second
-	// DefaultMaxTokens caps the proposal completion.
-	DefaultMaxTokens = 16_000
+	// DefaultMaxTokens caps the proposal completion. Proposals are a JSON edit
+	// list (typically 1-3K tokens), so 8K is a generous ceiling that keeps the
+	// in-turn refine tool call snappy on long tasks.
+	DefaultMaxTokens = 8_000
 	// DefaultMaxOutputBytes aborts the stream if the provider ignores MaxTokens.
 	DefaultMaxOutputBytes = 256 * 1024
 	// DefaultMaxSystemBytes covers the refine policy prompt.

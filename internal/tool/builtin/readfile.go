@@ -103,17 +103,21 @@ func (r readFile) Execute(ctx context.Context, args json.RawMessage) (string, er
 	// The host overlay (unsaved editor buffers) wins over the disk when it can
 	// serve the path. Content arrives already decoded as text, so the encoding
 	// and binary-detection pipeline below applies to the disk fallback only.
+	fileSize := int64(-1)
 	if r.overlay != nil && !rp.External && filepath.IsAbs(p.Path) {
 		if content, ok := r.overlay.ReadTextFile(ctx, p.Path); ok {
-			return r.scan(strings.NewReader(content), p.Offset, p.Limit)
+			return r.scan(strings.NewReader(content), p.Offset, p.Limit, fileSize)
 		}
 	}
 
 	// A directory can be os.Open'd but not read as text — catch it up front with
 	// an actionable message (and avoid the doubled "read X: read X:" the scanner's
 	// error would otherwise produce) so the model switches to the ls tool.
-	if info, err := os.Stat(p.Path); err == nil && info.IsDir() {
-		return "", fmt.Errorf("%s is a directory, not a file — use the ls tool to list it, or read a specific file inside it", displayPath)
+	if info, err := os.Stat(p.Path); err == nil {
+		fileSize = info.Size()
+		if info.IsDir() {
+			return "", fmt.Errorf("%s is a directory, not a file — use the ls tool to list it, or read a specific file inside it", displayPath)
+		}
 	}
 
 	f, err := os.Open(p.Path)
@@ -148,14 +152,14 @@ func (r readFile) Execute(ctx context.Context, args json.RawMessage) (string, er
 		}
 		all := append(peek, rest...)
 		bom := fileenc.DetectQuick(all)
-		return r.scan(bytes.NewReader(fileenc.Decode(all, bom)), p.Offset, p.Limit)
+		return r.scan(bytes.NewReader(fileenc.Decode(all, bom)), p.Offset, p.Limit, fileSize)
 	case fileenc.UTF8BOM:
 		// Strip the 3-byte BOM; the content is valid UTF-8 and streams directly.
 		body := peek
 		if len(body) >= 3 {
 			body = body[3:]
 		}
-		return r.scan(io.MultiReader(bytes.NewReader(body), f), p.Offset, p.Limit)
+		return r.scan(io.MultiReader(bytes.NewReader(body), f), p.Offset, p.Limit, fileSize)
 	}
 
 	// BOM-less UTF-16 (Windows source files) has a NUL for every ASCII char but
@@ -170,7 +174,7 @@ func (r readFile) Execute(ctx context.Context, args json.RawMessage) (string, er
 			return "", fmt.Errorf("read %s: %w", displayPath, rerr)
 		}
 		all := append(peek, rest...)
-		return r.scan(bytes.NewReader(fileenc.Decode(all, k)), p.Offset, p.Limit)
+		return r.scan(bytes.NewReader(fileenc.Decode(all, k)), p.Offset, p.Limit, fileSize)
 	}
 
 	if bytes.IndexByte(peek, 0) >= 0 {
@@ -203,13 +207,17 @@ func (r readFile) Execute(ctx context.Context, args json.RawMessage) (string, er
 
 	src := io.MultiReader(bytes.NewReader(head), f)
 	if dec := fileenc.Decoder(enc); dec != nil {
-		return r.scan(transform.NewReader(src, dec), p.Offset, p.Limit)
+		return r.scan(transform.NewReader(src, dec), p.Offset, p.Limit, fileSize)
 	}
-	return r.scan(src, p.Offset, p.Limit)
+	return r.scan(src, p.Offset, p.Limit, fileSize)
 }
 
 // scan reads lines from src and returns the formatted output with line numbers.
-func (r readFile) scan(src io.Reader, offset, limit int) (string, error) {
+// fileSize is the on-disk byte size (negative when unknown); first-page reads of
+// large files append a size hint so the model can decide whether paging is worth
+// it instead of blindly re-reading 2000-line windows (the token-blowup pattern
+// seen in large-novel editing sessions).
+func (r readFile) scan(src io.Reader, offset, limit int, fileSize int64) (string, error) {
 	scanner := bufio.NewScanner(src)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 
@@ -251,5 +259,26 @@ func (r readFile) scan(src io.Reader, offset, limit int) (string, error) {
 	if hasMore {
 		fmt.Fprintf(&b, "\n[more lines below; pass offset=%d to continue]\n", offset+len(collected))
 	}
+	// First-page size hint: a large file told up front costs nothing (stat) and
+	// stops the model from treating a 300 KB novel as a 2000-line file. Page
+	// reads (offset>0) already know the file is large and get no hint.
+	if offset == 0 && fileSize > 64*1024 {
+		fmt.Fprintf(&b, "\n(file is %s; showing the first %d lines — pass offset/limit to page)\n",
+			humanBytes(fileSize), limit)
+	}
 	return b.String(), nil
+}
+
+// humanBytes renders a byte count compactly (e.g. "296 KB").
+func humanBytes(n int64) string {
+	switch {
+	case n >= 1<<30:
+		return fmt.Sprintf("%.1f GB", float64(n)/(1<<30))
+	case n >= 1<<20:
+		return fmt.Sprintf("%.1f MB", float64(n)/(1<<20))
+	case n >= 1<<10:
+		return fmt.Sprintf("%d KB", n/(1<<10))
+	default:
+		return fmt.Sprintf("%d B", n)
+	}
 }

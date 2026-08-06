@@ -34,7 +34,7 @@ func TestScanWindowedReadDoesNotConsumeWholeFile(t *testing.T) {
 	}
 
 	cr := &countingReader{r: bytes.NewReader(buf.Bytes())}
-	out, err := readFile{}.scan(cr, 0, 3)
+	out, err := readFile{}.scan(cr, 0, 3, -1)
 	if err != nil {
 		t.Fatalf("scan: %v", err)
 	}

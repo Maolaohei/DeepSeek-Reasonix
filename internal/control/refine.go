@@ -19,6 +19,11 @@ import (
 // recent tail, matching how compaction selects its input.
 const refineTrajectoryChars = 80_000
 
+// refineReviewChars bounds the smaller slice fed to the auto-refine review
+// gate: deciding whether the trajectory contains reusable lessons needs less
+// context than planning the edits themselves, so the gate costs ~half.
+const refineReviewChars = 40_000
+
 // refineSessionFor builds the bounded refine planner from the executor's
 // provider. nil when no provider is available (refinement disabled).
 func refineSessionFor(opts Options, sink event.Sink) *refine.Session {
@@ -349,6 +354,12 @@ func (c *Controller) workspaceRootForStore() string {
 // refineTrajectory serializes the recent session messages into a bounded text
 // slice for the planner.
 func (c *Controller) refineTrajectory() string {
+	return c.refineTrajectoryBounded(refineTrajectoryChars)
+}
+
+// refineTrajectoryBounded serializes the recent session messages into a bounded
+// text slice for the planner or the review gate.
+func (c *Controller) refineTrajectoryBounded(maxChars int) string {
 	if c.executor == nil {
 		return ""
 	}
@@ -356,7 +367,7 @@ func (c *Controller) refineTrajectory() string {
 	if sess == nil {
 		return ""
 	}
-	return serializeTrajectory(sess.Snapshot(), refineTrajectoryChars)
+	return serializeTrajectory(sess.Snapshot(), maxChars)
 }
 
 // serializeTrajectory renders messages as a bounded plain-text transcript.
@@ -397,8 +408,11 @@ func clipToolResult(content string) string {
 }
 
 // refineExtras renders the caller-supplied harness context lines for the
-// planner overview: memory index and skill names.
+// planner overview: memory index and skill names. The index is capped so a
+// large memory store cannot bloat the refine prompt (the overview is a hint,
+// not a dump).
 func (c *Controller) refineExtras() []string {
+	const maxMemoryIndex = 50
 	var extras []string
 	if set := c.Memory(); set != nil {
 		facts := set.Store.ListAll()
@@ -406,12 +420,19 @@ func (c *Controller) refineExtras() []string {
 			extras = append(extras, "memories: (none)")
 		} else {
 			var lines []string
-			for _, f := range facts {
+			shown := facts
+			if len(shown) > maxMemoryIndex {
+				shown = shown[:maxMemoryIndex]
+			}
+			for _, f := range shown {
 				desc := oneLineRefine(f.Description)
 				if desc == "" {
 					desc = f.Name
 				}
 				lines = append(lines, fmt.Sprintf("- [%s:%s] %s", f.Scope, f.Name, desc))
+			}
+			if len(facts) > maxMemoryIndex {
+				lines = append(lines, fmt.Sprintf("- +%d more memories (see /memory)", len(facts)-maxMemoryIndex))
 			}
 			extras = append(extras, "memories:\n"+strings.Join(lines, "\n"))
 		}

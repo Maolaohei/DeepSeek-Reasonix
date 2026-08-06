@@ -403,6 +403,15 @@ type Agent struct {
 	// Set via SetPreEditHook. Prefer mutationObserver when both are set.
 	onPreEdit func(diff.Change)
 
+	// onCompactDone, when non-nil, is called after a successful compaction
+	// (auto or manual) with the trigger label; the auto-refine gate hooks here.
+	onCompactDone func(trigger string)
+	// onTurnDone, when non-nil, is called after each completed user turn with
+	// the running turn count; the interval-based auto-refine gate hooks here.
+	onTurnDone func(turnCount int64)
+	// turnCount accumulates completed user turns (atomic: read by the hook).
+	turnCount atomic.Int64
+
 	// mutationObserver is the host-side unified file mutation observer. It
 	// captures preimages before tools run and after-fingerprints regardless of
 	// success/failure. Passed through Options to sub-agents; never changes
@@ -801,6 +810,31 @@ func (a *Agent) Session() *Session {
 	return a.session
 }
 
+// Provider returns the agent's provider — used by host-side reviewers (e.g.
+// /refine) that need an isolated no-tool call on the same endpoint.
+func (a *Agent) Provider() provider.Provider {
+	if a == nil {
+		return nil
+	}
+	return a.prov
+}
+
+// Pricing returns the agent's pricing table, nil when unset.
+func (a *Agent) Pricing() *provider.Pricing {
+	if a == nil {
+		return nil
+	}
+	return a.pricing
+}
+
+// ModelRef returns the canonical "provider/model" label of this agent.
+func (a *Agent) ModelRef() string {
+	if a == nil {
+		return ""
+	}
+	return a.modelRef
+}
+
 // SetSession replaces the agent's conversation wholesale. Used by
 // `reasonix --resume` to load a saved JSONL transcript before the first turn,
 // so the model picks up exactly where it left off. Callers serialise it against a
@@ -997,6 +1031,29 @@ func (a *Agent) steerQueueLen() int {
 	a.steerMu.Lock()
 	defer a.steerMu.Unlock()
 	return len(a.steerQueue)
+}
+
+// SetCompactDoneHook registers a callback fired after a successful compaction
+// (auto or manual). Used by the controller's auto-refine gate so reusable
+// lessons persist without a manual /refine. Set at controller construction,
+// read only during compaction — same no-lock contract as SetPreEditHook.
+func (a *Agent) SetCompactDoneHook(fn func(trigger string)) {
+	if a == nil {
+		return
+	}
+	a.onCompactDone = fn
+}
+
+// SetTurnDoneHook registers a callback fired after each completed user turn
+// (Run returned nil), with the running turn count (1-based). Used by the
+// controller's interval-based auto-refine gate (Prime Agent's turn_interval
+// trigger). Set at controller construction, read only from Run — same no-lock
+// contract as SetCompactDoneHook.
+func (a *Agent) SetTurnDoneHook(fn func(turnCount int64)) {
+	if a == nil {
+		return
+	}
+	a.onTurnDone = fn
 }
 
 // CompactRatio returns the fraction of the window at which auto-compaction
@@ -1387,7 +1444,13 @@ func (a *Agent) Run(ctx context.Context, input string) (runErr error) {
 	state.runMaxStepsKey = runMaxStepsKey
 	state.runLimitHostOwned = runLimitHostOwned
 	state.workDurationMs = workDurationMs
-	return a.runToolLoop(ctx, state)
+	runErr = a.runToolLoop(ctx, state)
+	if runErr == nil && a.onTurnDone != nil {
+		// A completed user turn advances the interval counter; the controller's
+		// turn_interval auto-refine gate fires every N turns.
+		a.onTurnDone(a.turnCount.Add(1))
+	}
+	return runErr
 }
 
 // observeMissingToolCallReasoning classifies a thinking-mode tool-call turn and

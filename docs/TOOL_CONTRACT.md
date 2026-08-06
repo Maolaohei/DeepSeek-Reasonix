@@ -98,8 +98,15 @@ those direct tools are installed, connected, or refreshed.
 `ask`, `docs`, `explore`, `fleet`, `forget`, `history`, `install_skill`, `install_source`,
 `list_sessions`, `lsp_definition`, `lsp_diagnostics`, `lsp_hover`,
 `lsp_references`, `memory`, `parallel_tasks`, `read_only_skill`,
-`read_only_task`, `read_session`, `read_skill`, `read_subagent_result`, `remember`, `research`,
+`read_only_task`, `read_session`, `read_skill`, `read_subagent_result`, `refine`, `remember`, `research`,
 `review`, `run_skill`, `security_review`, `slash_command`, `task`.
+
+`refine` runs a Continual Harness pass from the trajectory — the model persists
+small, evidence-backed prompt notes, memories, skills, or subagent specs
+without a manual `/refine`. It writes only harness/memory/skill state under the
+state root (never the workspace) and is declared read-only, so it rides the
+agent flow without an approval gate; every applied edit is recorded with
+before/after snapshots and is rollbackable. Not enabled in Economy.
 
 `parallel_tasks` and `fleet` keep their combined result below the single-tool
 output limit by returning a fair preview and a stable `Subagent reference` for

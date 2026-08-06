@@ -162,8 +162,24 @@ func (c *Controller) composeWithGoal(
 	plan := c.planMode
 	responseLanguage := c.responseLanguage
 	reasoningLanguage := c.reasoningLanguage
+	harnessNotes := c.harnessNotes
+	c.harnessNotes = nil
 	c.mu.Unlock()
 	notes := c.memory.drainPending()
+
+	// Harness refinements applied mid-session ride the turn (never the cached
+	// system prefix) so the model learns the new prompt notes now; they fold
+	// into the prefix on the next session.
+	if len(harnessNotes) > 0 {
+		var hb strings.Builder
+		hb.WriteString("<harness-update>\n")
+		hb.WriteString("The following Continual Harness changes were just refined and apply from now on:\n")
+		for _, n := range harnessNotes {
+			hb.WriteString("- " + n + "\n")
+		}
+		hb.WriteString("</harness-update>\n\n")
+		text = hb.String() + text
+	}
 
 	if strings.TrimSpace(goal) != "" && goalStatus == GoalStatusRunning {
 		prefix := activeGoalBlock(goal, goalResearchMode)

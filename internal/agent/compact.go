@@ -338,6 +338,9 @@ func (a *Agent) compact(ctx context.Context, trigger, instructions string, force
 	a.sink.Emit(event.Event{Kind: event.CompactionDone, Compaction: event.Compaction{
 		Trigger: trigger, Messages: len(fold), Summary: summary, Archive: archived,
 	}})
+	if a.onCompactDone != nil {
+		a.onCompactDone(trigger)
+	}
 	return nil
 }
 

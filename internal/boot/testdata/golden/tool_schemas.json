@@ -1292,6 +1292,28 @@
     }
   },
   {
+    "Name": "refine",
+    "Description": "Run a Continual Harness refinement: analyze the recent trajectory and persist small, evidence-backed reusable lessons as prompt notes, memories, skills, or subagent specs. Use after a repeated failure, when a reusable tactic emerges, when a durable fact or preference becomes clear, or when a user correction should persist. Edits apply to the project harness by default; use scope \"global\" only for stable cross-session lessons that should affect every workspace. The base system prompt, REASONIX.md, and AGENTS.md are never modified. Keep edits small and grounded in trajectory evidence.",
+    "ReadOnly": true,
+    "Schema": {
+      "properties": {
+        "instructions": {
+          "description": "Optional focus guidance, e.g. which failure to learn from or which policy to capture.",
+          "type": "string"
+        },
+        "scope": {
+          "description": "Where edits persist. Default project (this workspace). global affects every workspace — use sparingly.",
+          "enum": [
+            "project",
+            "global"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
     "Name": "remember",
     "Description": "Save a durable background fact so it survives across sessions. Use for things worth remembering long-term: who the user is and their preferences (type \"user\"); guidance on how to work, including the why (type \"feedback\"); ongoing goals or constraints not derivable from the code (type \"project\"); or pointers to external resources (type \"reference\"). For feedback/project, structure the body with a \"**Why:**\" line and a \"**How to apply:**\" line so the fact is actionable later; link related memories inline with [[their-name]]. Do NOT save what the repo already records (code structure, git history) or facts that only matter to the current conversation; if asked to remember one of those, save instead the non-obvious point behind it. Choose scope \"project\" for the current workspace (the safe default) or \"global\" only when the fact should affect every project. Standing rules that must always be followed belong in project or global REASONIX.md/AGENTS.md instructions, not background memory. Before saving, check the loaded memory index for an entry that already covers this — reuse that name to update it rather than create a near-duplicate, and use `forget` to drop one that is now wrong. The saved index loads into context at the start of each session.",
     "ReadOnly": false,

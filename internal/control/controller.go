@@ -50,6 +50,7 @@ import (
 	"reasonix/internal/plugin"
 	"reasonix/internal/provider"
 	"reasonix/internal/recovery"
+	"reasonix/internal/refine"
 	"reasonix/internal/sandbox"
 	"reasonix/internal/sessiontemp"
 	"reasonix/internal/shellrun"
@@ -92,6 +93,20 @@ type Controller struct {
 	// working model submits no update_goal report. nil fails closed: the goal
 	// pauses instead of defaulting to continue.
 	evaluator goaleval.Evaluator
+	// refiner is the bounded Continual Harness planner consulted by /refine.
+	// nil disables refinement (no provider available).
+	refiner *refine.Session
+	// harnessAutoRefine enables the post-compaction auto-refine gate;
+	// harnessAutoRefineInterval throttles it; lastAutoRefine records the last
+	// run (guarded by c.mu) for the throttle. autoRefineIntervalTurns triggers
+	// the gate every N completed turns (Prime's turn_interval, 0 = off).
+	// harnessEnabled gates the whole Continual Harness surface (/refine command
+	// included).
+	harnessAutoRefine         bool
+	harnessAutoRefineInterval time.Duration
+	lastAutoRefine            time.Time
+	harnessEnabled            bool
+	autoRefineIntervalTurns   int
 	// goalUsageTee accounts billable usage events into the active goal turn's
 	// observational token total. It wraps the public sink when the caller didn't provide one.
 	goalUsageTee *goalUsageTee
@@ -119,6 +134,11 @@ type Controller struct {
 	// hookContexts carries one-shot lifecycle hook context into the next real
 	// user turn without changing the cache-stable system prompt.
 	hookContexts []string
+	// harnessNotes queues turn-tail Continual Harness update notes (from
+	// /refine) for the next outgoing turn. They never touch the cache-stable
+	// prefix — new prompt notes ride the turn and fold into the prefix on the
+	// next session, exactly like mid-session memory writes.
+	harnessNotes []string
 	// memory owns the loaded memory snapshot, the pending turn-tail notes queue,
 	// and write serialization behind its own locks, off c.mu — so a memory-panel
 	// save never stalls an approval or status poll. See memory.go.
@@ -413,8 +433,21 @@ type Options struct {
 	// when the working model submits no update_goal report. nil fails closed:
 	// the goal pauses instead of defaulting to continue.
 	GoalEvaluator goaleval.Evaluator
-	Sink          event.Sink
-	Policy        permission.Policy
+	// HarnessAutoRefine enables the post-compaction auto-refine gate (Continual
+	// Harness). HarnessAutoRefineInterval throttles automatic refinements.
+	HarnessAutoRefine         bool
+	HarnessAutoRefineInterval time.Duration
+	// HarnessEnabled gates the whole Continual Harness: the refine tool, the
+	// /refine command, and the turn-tail harness updates are inert when false.
+	HarnessEnabled bool
+	// HarnessAutoRefineIntervalTurns triggers the review gate every N completed
+	// assistant turns (Prime Agent's turn_interval; default 25, 0 disables).
+	HarnessAutoRefineIntervalTurns int
+	// ToolEconomy suppresses the refine tool so the provider-visible lean
+	// surface stays byte-stable for token-economy sessions.
+	ToolEconomy bool
+	Sink        event.Sink
+	Policy      permission.Policy
 	// SubagentGate is the shared, mutable gate every headless-only sub-agent
 	// surface (task, writer-capable skill sub-agents, planner) reads from. Nil
 	// disables gating for those surfaces same as before this field existed.
@@ -561,6 +594,11 @@ func New(opts Options) *Controller {
 		guardianSess:                      opts.Guardian,
 		guardianPath:                      guardian.PathFor(opts.SessionPath),
 		evaluator:                         opts.GoalEvaluator,
+		refiner:                           refineSessionFor(opts, opts.Sink),
+		harnessAutoRefine:                 opts.HarnessAutoRefine,
+		harnessAutoRefineInterval:         opts.HarnessAutoRefineInterval,
+		harnessEnabled:                    opts.HarnessEnabled,
+		autoRefineIntervalTurns:           opts.HarnessAutoRefineIntervalTurns,
 		goalUsageTee:                      usageTee,
 		sink:                              sink,
 		policy:                            opts.Policy,
@@ -646,6 +684,30 @@ func New(opts Options) *Controller {
 			c.workspaceRoot,
 			func() string { return c.parentSessionID() },
 		))
+	}
+	// Continual Harness: expose the model-triggered refine tool on the
+	// executor's live registry. The tool writes only harness/memory/skill
+	// state and is declared read-only, so it rides the agent flow without an
+	// approval gate (every edit is recorded and rollbackable). Economy keeps
+	// its lean surface stable, so the tool is suppressed there; a disabled
+	// harness suppresses it everywhere.
+	if c.executor != nil && opts.Registry != nil && !opts.ToolEconomy && opts.HarnessEnabled {
+		opts.Registry.Add(NewRefineTool(c))
+	}
+	// Auto-refine gate: after each successful compaction, review the trajectory
+	// and persist reusable lessons without a manual /refine. Throttled by
+	// HarnessAutoRefineInterval (zero falls back to the config default). The
+	// turn-interval trigger fires every HarnessAutoRefineIntervalTurns completed
+	// turns (Prime's turn_interval; zero disables that trigger).
+	if c.executor != nil && c.harnessAutoRefine {
+		if c.harnessAutoRefineInterval <= 0 {
+			c.harnessAutoRefineInterval = time.Duration(config.DefaultHarnessAutoRefineMinIntervalMins) * time.Minute
+		}
+		if c.autoRefineIntervalTurns <= 0 {
+			c.autoRefineIntervalTurns = config.DefaultAutoRefineIntervalTurns
+		}
+		c.executor.SetCompactDoneHook(c.maybeAutoRefine)
+		c.executor.SetTurnDoneHook(c.onAgentTurnDone)
 	}
 	return c
 }
@@ -1487,6 +1549,11 @@ func (c *Controller) submitCommandOrTurn(trimmed, input, display string, scopedR
 			if err := c.Rewind(turn, scope); err != nil {
 				c.notice(err.Error())
 			}
+			return
+		case "/refine":
+			args := strings.TrimSpace(strings.TrimPrefix(trimmed, fields[0]))
+			c.notice("refine: planning...")
+			c.Refine(args)
 			return
 		case "/plan-exec":
 			c.applyPlanExec(trimmed, display)

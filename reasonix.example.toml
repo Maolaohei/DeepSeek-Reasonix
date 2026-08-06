@@ -149,6 +149,15 @@ stalled_warning_seconds = 900   # warn once per background job after this many q
 # excluded_paths = ["~/.agents/skills"]         # hide convention roots without deleting folders
 # disabled_skills = ["review"]                  # hide from prompt, slash invocation, and skill tools
 
+# [harness]
+# Continual Harness (/refine): durable, model-editable supplemental state
+# (prompt notes, memories, skills, subagent specs) the agent refines from its
+# own trajectory. Base system prompt / REASONIX.md / AGENTS.md are never touched.
+# enabled = true    # master switch for harness prompt notes and /refine
+# auto_refine = true  # after each auto-compaction, review the trajectory and persist reusable lessons automatically
+# auto_refine_min_interval_minutes = 10   # throttle between automatic refinements
+# auto_refine_interval_turns = 25   # review-gate pass every N completed turns (Prime Agent default; 0 = off)
+
 # Hooks run shell commands around the loop (PreToolUse / PostToolUse /
 # PermissionRequest / UserPromptSubmit / Stop). They are NOT configured here — put them in
 # settings.json: <Reasonix home>/settings.json (global, always on) and

@@ -1,0 +1,7 @@
+# ARC-AGI-3 eval harness — local artifacts
+.venv/
+environment_files/
+runs/
+__pycache__/
+*.pyc
+.env

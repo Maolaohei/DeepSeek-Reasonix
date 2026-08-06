@@ -86,10 +86,28 @@ func SlashArgItems(line string, d ArgData) ([]SlashItem, int) {
 		raw = currencyArgItems(prior)
 	case "/memory":
 		raw = memoryArgItems(prior, d)
+	case "/refine":
+		raw = refineArgItems(prior)
 	default:
 		return nil, from
 	}
 	return filterSlash(raw, line, from, cur), from
+}
+
+func refineArgItems(prior []string) []SlashItem {
+	if len(prior) <= 1 {
+		return []SlashItem{
+			{Label: "--global", Insert: "--global ", Hint: "refine the user-level harness (cross-workspace)"},
+			{Label: "--rollback", Insert: "--rollback ", Hint: "roll back a recorded refinement", Descend: true},
+			{Label: "instructions", Insert: "", Hint: "free-form guidance for the refinement"},
+		}
+	}
+	for _, p := range prior {
+		if p == "--rollback" {
+			return nil // id is free-form; no completion source yet
+		}
+	}
+	return nil
 }
 
 func memoryArgItems(prior []string, d ArgData) []SlashItem {

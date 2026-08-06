@@ -4711,6 +4711,16 @@ func (m *chatTUI) runSlashCommand(input string) tea.Cmd {
 	case "/memory":
 		m.echoLocalCommand(input)
 		m.showMemory(input)
+	case "/refine":
+		m.echoLocalCommand(input)
+		args := strings.TrimSpace(strings.TrimPrefix(input, typedCmd))
+		if m.ctrl == nil {
+			m.notice("refine: controller unavailable")
+			return nil
+		}
+		m.notice("refine: planning...")
+		m.ctrl.Refine(args)
+		return nil
 	case "/migrate", "/migration":
 		m.echoLocalCommand(input)
 		migration.RunLegacyRescueCommand(strings.TrimSpace(strings.TrimPrefix(input, typedCmd)), event.FuncSink(func(e event.Event) {

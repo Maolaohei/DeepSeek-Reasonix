@@ -2214,6 +2214,7 @@ func defaultFullBootToolNames() []string {
 		"read_session",
 		"read_skill",
 		"read_subagent_result",
+		"refine",
 		"remember",
 		"research",
 		"review",

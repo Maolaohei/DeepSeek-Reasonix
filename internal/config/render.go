@@ -444,6 +444,23 @@ func RenderTOMLForScope(c *Config, scope RenderScope) string {
 		b.WriteString("# disabled_skills = [\"review\"]   # hide noisy or unwanted skills\n\n")
 	}
 
+	b.WriteString("[harness]\n")
+	b.WriteString("# Continual Harness (/refine): durable, model-editable supplemental state.\n")
+	fmt.Fprintf(&b, "enabled = %v   # master switch for harness prompt notes and /refine\n", c.HarnessEnabled())
+	if c.Harness.Enabled != nil && !*c.Harness.Enabled {
+		b.WriteString("# enabled = true   # restore the default\n")
+	}
+	fmt.Fprintf(&b, "auto_refine = %v   # after each auto-compaction, review the trajectory and persist reusable lessons without a manual /refine\n", c.HarnessAutoRefine())
+	if c.Harness.AutoRefine != nil && !*c.Harness.AutoRefine {
+		b.WriteString("# auto_refine = true   # keep the harness auto-learning\n")
+	}
+	fmt.Fprintf(&b, "auto_refine_min_interval_minutes = %d   # minimum minutes between automatic refinements\n", c.HarnessAutoRefineMinInterval())
+	if c.Harness.AutoRefineIntervalTurns != 0 && c.Harness.AutoRefineIntervalTurns != DefaultAutoRefineIntervalTurns {
+		fmt.Fprintf(&b, "auto_refine_interval_turns = %d   # review-gate pass every N completed turns (Prime default 25; 0 = off)\n\n", c.HarnessAutoRefineIntervalTurns())
+	} else {
+		b.WriteString("# auto_refine_interval_turns = 25   # review-gate pass every N completed turns (Prime default; 0 = off)\n\n")
+	}
+
 	b.WriteString("[permissions]\n")
 	b.WriteString("# Per-call gating. mode = writer fallback when no rule matches: ask|allow|deny.\n")
 	b.WriteString("# Readers always default to allow. Precedence: deny > ask > allow > fallback.\n")
@@ -1146,6 +1163,23 @@ func RenderTOMLProjectDelta(c *Config) string {
 		}
 		if disabled := c.DisabledSkillNames(); len(disabled) > 0 {
 			fmt.Fprintf(&b, "disabled_skills = %s\n\n", renderStringArray(disabled))
+		}
+	}
+
+	// [harness]
+	if !reflect.DeepEqual(c.Harness, d.Harness) {
+		b.WriteString("[harness]\n")
+		if c.Harness.Enabled != nil && !*c.Harness.Enabled {
+			fmt.Fprintf(&b, "enabled = %v\n", *c.Harness.Enabled)
+		}
+		if c.Harness.AutoRefine != nil && !*c.Harness.AutoRefine {
+			fmt.Fprintf(&b, "auto_refine = %v\n", *c.Harness.AutoRefine)
+		}
+		if c.Harness.AutoRefineMinIntervalMins != 0 && c.Harness.AutoRefineMinIntervalMins != d.Harness.AutoRefineMinIntervalMins {
+			fmt.Fprintf(&b, "auto_refine_min_interval_minutes = %d\n", c.Harness.AutoRefineMinIntervalMins)
+		}
+		if c.Harness.AutoRefineIntervalTurns != 0 && c.Harness.AutoRefineIntervalTurns != d.Harness.AutoRefineIntervalTurns {
+			fmt.Fprintf(&b, "auto_refine_interval_turns = %d\n\n", c.Harness.AutoRefineIntervalTurns)
 		}
 	}
 

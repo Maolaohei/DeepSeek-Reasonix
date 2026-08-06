@@ -54,6 +54,7 @@ import (
 	"reasonix/internal/productdocs"
 	"reasonix/internal/provider"
 	"reasonix/internal/recovery"
+	"reasonix/internal/refine"
 	"reasonix/internal/sandbox"
 	"reasonix/internal/secrets"
 	"reasonix/internal/sessiontemp"
@@ -588,6 +589,23 @@ func build(ctx context.Context, opts Options) (*BuildResult, error) {
 	mem := memory.Load(memory.Options{CWD: root, UserDir: config.MemoryUserDir()})
 	projectChecks := instruction.ExtractHostChecks(mem.Docs)
 	sysPrompt = memory.Compose(sysPrompt, mem)
+
+	// Continual Harness (refine): the fixed usage guidance plus supplemental
+	// prompt notes the agent refined in past sessions fold into the same
+	// cache-stable prefix as compact summaries, after the memory docs and
+	// before the skill index. The guidance is always injected when the harness
+	// is enabled (even with zero notes), so the model knows the mechanism and
+	// when to call refine without any user configuration. Mid-session
+	// refinements never touch this prefix — they ride the controller's
+	// transient turn-tail injection and fold in on the next session (the
+	// memory pattern above).
+	if cfg.HarnessEnabled() {
+		sysPrompt += "\n\n" + refine.GuidanceBlock
+		sysPrompt = refine.Compose(sysPrompt,
+			refine.StoreFor(config.MemoryUserDir(), root),
+			refine.GlobalStoreFor(config.MemoryUserDir()),
+		)
+	}
 
 	// Skills: discover playbooks (built-in + project/custom/global) and fold their
 	// one-liner index into the same cache-stable prefix — names + descriptions
@@ -1858,19 +1876,18 @@ func build(ctx context.Context, opts Options) (*BuildResult, error) {
 	}
 
 	ctrlOpts := control.Options{
-		Runner:              runner,
-		Executor:            executor,
-		Sink:                sink,
-		Policy:              policy,
-		SubagentGate:        headlessGate,
-		Label:               label,
-		ModelRef:            modelRef,
-		SystemPrompt:        sysPrompt,
-		SessionDir:          sessionDir,
-		Host:                pluginHost,
-		Commands:            cmds,
-		Skills:              skills,
-		AllSkills:           allSkills,
+		Runner:       runner,
+		Executor:     executor,
+		Sink:         sink,
+		Policy:       policy,
+		SubagentGate: headlessGate,
+		Label:        label,
+		ModelRef:     modelRef,
+		SystemPrompt: sysPrompt,
+		SessionDir:   sessionDir,
+		Host:         pluginHost,
+		Commands:     cmds,
+		Skills:       skills, AllSkills: allSkills,
 		SkillStore:          skillStore,
 		AllSkillStore:       allSkillStore,
 		SkillRunner:         skillRunner,
@@ -2004,6 +2021,13 @@ func build(ctx context.Context, opts Options) (*BuildResult, error) {
 			}
 		}
 	}
+	// Continual Harness: the auto-refine gate runs a review pass after each
+	// auto-compaction and persists reusable lessons without a manual /refine.
+	ctrlOpts.HarnessAutoRefine = cfg.HarnessEnabled() && cfg.HarnessAutoRefine()
+	ctrlOpts.HarnessAutoRefineInterval = time.Duration(cfg.HarnessAutoRefineMinInterval()) * time.Minute
+	ctrlOpts.HarnessAutoRefineIntervalTurns = cfg.HarnessAutoRefineIntervalTurns()
+	ctrlOpts.HarnessEnabled = cfg.HarnessEnabled()
+	ctrlOpts.ToolEconomy = tokenEconomy
 	ctrl := control.New(ctrlOpts)
 	// Publish the controller to the extension UI hub's indirection: from here
 	// on, host/ui/* publishes ride ctrl.EmitExtensionEvent and blocking prompts

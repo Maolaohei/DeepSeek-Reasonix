@@ -59,6 +59,7 @@ type Config struct {
 	Environment      EnvironmentConfig   `toml:"environment"`
 	Plugins          []PluginEntry       `toml:"plugins"`
 	Skills           SkillsConfig        `toml:"skills"`
+	Harness          HarnessConfig       `toml:"harness"`
 	Statusline       StatuslineConfig    `toml:"statusline"`
 	LSP              LSPConfig           `toml:"lsp"`
 	Bot              BotConfig           `toml:"bot"`
@@ -1018,6 +1019,60 @@ type SkillsConfig struct {
 	MaxDepth       int      `toml:"max_depth"`
 }
 
+// HarnessConfig configures the Continual Harness (/refine): the durable,
+// model-editable supplemental state layer. Enabled gates the whole feature;
+// AutoRefine runs the review-gate pass after each automatic compaction so
+// reusable lessons persist without a manual /refine. Pointer fields: nil means
+// "not set" (both default to on), false is an explicit opt-out — configs
+// written before the [harness] section existed must stay enabled.
+type HarnessConfig struct {
+	Enabled                   *bool `toml:"enabled"`
+	AutoRefine                *bool `toml:"auto_refine"`
+	AutoRefineMinIntervalMins int   `toml:"auto_refine_min_interval_minutes"`
+	// AutoRefineIntervalTurns mirrors Prime Agent's auto-refine turn interval:
+	// one review-gate pass every N completed assistant turns (Prime default:
+	// 25). 0 disables the interval trigger (compaction trigger still applies).
+	AutoRefineIntervalTurns int `toml:"auto_refine_interval_turns"`
+}
+
+// HarnessEnabled reports whether the Continual Harness is on. Unset defaults
+// to on.
+func (c *Config) HarnessEnabled() bool {
+	if c == nil || c.Harness.Enabled == nil {
+		return true
+	}
+	return *c.Harness.Enabled
+}
+
+// HarnessAutoRefine reports whether automatic refinement after compaction is
+// on. Unset defaults to on: the harness is integrated into the long-task
+// machinery rather than gated behind a manual command.
+func (c *Config) HarnessAutoRefine() bool {
+	if c == nil || c.Harness.AutoRefine == nil {
+		return true
+	}
+	return *c.Harness.AutoRefine
+}
+
+// HarnessAutoRefineMinInterval returns the minimum minutes between automatic
+// refinements; zero uses the default.
+func (c *Config) HarnessAutoRefineMinInterval() int {
+	if c != nil && c.Harness.AutoRefineMinIntervalMins > 0 {
+		return c.Harness.AutoRefineMinIntervalMins
+	}
+	return DefaultHarnessAutoRefineMinIntervalMins
+}
+
+// HarnessAutoRefineIntervalTurns returns the turn-interval trigger: one
+// review-gate pass every N completed assistant turns. Zero disables the
+// interval trigger; unset uses Prime Agent's default of 25.
+func (c *Config) HarnessAutoRefineIntervalTurns() int {
+	if c != nil && c.Harness.AutoRefineIntervalTurns > 0 {
+		return c.Harness.AutoRefineIntervalTurns
+	}
+	return DefaultAutoRefineIntervalTurns
+}
+
 // SkillCustomPaths returns the configured custom skill roots with ${VAR}
 // expanded; empty entries are dropped.
 func (c *Config) SkillCustomPaths() []string {
@@ -1590,6 +1645,13 @@ const (
 	defaultMCPCallTimeoutSeconds          = 300
 	defaultBackgroundJobStalledWarningSec = 900
 	maxBackgroundJobStalledWarningSec     = 86400
+	// DefaultHarnessAutoRefineMinIntervalMins is the minimum minutes between
+	// automatic (post-compaction) refinements, throttling the extra LLM pass.
+	DefaultHarnessAutoRefineMinIntervalMins = 10
+	// DefaultAutoRefineIntervalTurns mirrors Prime Agent's auto-refine turn
+	// interval: one review-gate pass every N completed assistant turns
+	// (Prime's settings-manager.ts documents default: 25).
+	DefaultAutoRefineIntervalTurns = 25
 )
 
 // BashTimeoutSeconds returns the foreground bash timeout in seconds. An omitted
@@ -1830,6 +1892,11 @@ func Default() *Config {
 		CredentialsStore: CredentialsStoreAuto,
 		UI:               UIConfig{Theme: "auto", ShowTurnUsage: true},
 		Desktop:          DesktopConfig{DefaultToolApprovalMode: "auto", ConversationWidth: "standard"},
+		Harness: HarnessConfig{
+			Enabled:                   boolPointer(true),
+			AutoRefine:                boolPointer(true),
+			AutoRefineMinIntervalMins: DefaultHarnessAutoRefineMinIntervalMins,
+		},
 		Notifications: NotificationsConfig{
 			Enabled:         false,
 			TurnDone:        true,

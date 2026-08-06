@@ -247,11 +247,18 @@ type SessionAPI interface {
 	Goals
 	SessionHistory
 	MemoryControl
+	RefineControl
 	Capabilities
 	Status
 	SessionPersistence
 	Input
 	Settings
+}
+
+// RefineControl covers the Continual Harness (/refine) surface.
+type RefineControl interface {
+	// Refine runs a /refine pass asynchronously and reports via notices.
+	Refine(args string)
 }
 
 // Compile-time proof that the concrete controller satisfies each sub-port and
@@ -264,6 +271,7 @@ var (
 	_ Goals              = (*Controller)(nil)
 	_ SessionHistory     = (*Controller)(nil)
 	_ MemoryControl      = (*Controller)(nil)
+	_ RefineControl      = (*Controller)(nil)
 	_ Capabilities       = (*Controller)(nil)
 	_ Status             = (*Controller)(nil)
 	_ SessionPersistence = (*Controller)(nil)

@@ -78,6 +78,20 @@ func validateEdit(e Edit, computedID string) string {
 	return ""
 }
 
+// Attribution identifies the trajectory context a refinement was applied in.
+// It is recorded into the refinement event so later passes can attribute
+// harness changes to concrete sessions. All fields are optional; zero values
+// are omitted from the event log.
+type Attribution struct {
+	// SessionID is the branch id of the session that triggered the refinement.
+	SessionID string
+	// SessionPath is the session file the refinement ran in.
+	SessionPath string
+	// GoalResult is the latest goal evaluator/continuation reason text, when
+	// the session ran under an active goal.
+	GoalResult string
+}
+
 // ApplyProposal applies the prompt edits of a proposal to the target scope's
 // store. Memory/skill/subagent edits are returned unresolved so callers can
 // bridge them (this package intentionally has no dependency on those stores).
@@ -85,7 +99,8 @@ func validateEdit(e Edit, computedID string) string {
 // baselineNotes is the note state captured at planning time; an edit whose
 // note changed on disk since then is rejected (concurrent-refinement guard).
 // Edits within one proposal are applied in order and may depend on each other.
-func ApplyProposal(st Store, proposal Proposal, baselineNotes map[string]PromptNote, now time.Time) ([]AppliedEditResult, error) {
+// attrs optionally carries the session attribution for the event log.
+func ApplyProposal(st Store, proposal Proposal, baselineNotes map[string]PromptNote, now time.Time, attrs ...Attribution) ([]AppliedEditResult, error) {
 	if !st.Available() {
 		return nil, fmt.Errorf("harness store unavailable")
 	}
@@ -184,14 +199,21 @@ func ApplyProposal(st Store, proposal Proposal, baselineNotes map[string]PromptN
 		}
 	}
 	if len(changes) > 0 {
+		var attr Attribution
+		if len(attrs) > 0 {
+			attr = attrs[0]
+		}
 		ev := RefinementEvent{
-			ID:        refinementID(now),
-			Trigger:   proposal.Summary,
-			Changes:   changes,
-			Evidence:  proposal.Rationale,
-			Outcome:   proposal.ExpectedOutcome,
-			CreatedAt: now,
-			Applied:   applied,
+			ID:          refinementID(now),
+			Trigger:     proposal.Summary,
+			Changes:     changes,
+			Evidence:    proposal.Rationale,
+			Outcome:     proposal.ExpectedOutcome,
+			SessionID:   attr.SessionID,
+			SessionPath: attr.SessionPath,
+			GoalResult:  attr.GoalResult,
+			CreatedAt:   now,
+			Applied:     applied,
 		}
 		if err := st.AppendRefinement(ev); err != nil {
 			return results, err

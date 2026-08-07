@@ -60,6 +60,9 @@ func (c *Controller) maybeAutoRefineGate(reason string) {
 		}
 		ctx := context.Background()
 		conversation := c.refineTrajectoryBounded(refineReviewChars)
+		if recs := c.refineSessionRecords(); recs != "" {
+			conversation += "\n\n<session_records>\n" + recs + "\n</session_records>"
+		}
 		notes := append(append([]refine.PromptNote{}, c.harnessStore(refine.ScopeProject).ListNotes()...),
 			c.harnessStore(refine.ScopeGlobal).ListNotes()...)
 		overview := refine.RenderOverview(notes, c.refineExtras()...)

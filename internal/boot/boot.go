@@ -87,6 +87,51 @@ func agentKeepPolicy(keep []string) agent.KeepPolicy {
 	return p
 }
 
+// recordHarnessLoads maintains the Continual Harness usage ledger (which notes
+// were loaded into this session's prefix) and surfaces stale notes as a
+// notice. The ledger lives in usage.json next to the store, never inside the
+// cache-stable prefix, so recording cannot perturb the prompt cache shape.
+// Stale notes — entries no session has loaded within refine.StaleNotesAfter —
+// are the harness's Build-to-Delete signal: an assumption the model has
+// outgrown.
+func recordHarnessLoads(sink event.Sink, stores ...refine.Store) {
+	var stale []refine.StaleNote
+	for _, st := range stores {
+		if !st.Available() {
+			continue
+		}
+		notes := st.ListNotes()
+		// Check staleness against the pre-boot ledger first: a note this boot
+		// is about to load again stops being stale only after the fact, but the
+		// notice must still fire when it was long idle before this session.
+		existing := map[string]bool{}
+		ids := make([]string, 0, len(notes))
+		for _, n := range notes {
+			existing[n.ID] = true
+			ids = append(ids, n.ID)
+		}
+		for _, s := range st.StaleNotes(refine.StaleNotesAfter) {
+			// Only surface notes that still exist; deleted notes leave usage
+			// residue that must not nag.
+			if existing[s.ID] {
+				stale = append(stale, s)
+			}
+		}
+		st.RecordNoteLoads(ids)
+	}
+	if len(stale) == 0 {
+		return
+	}
+	names := make([]string, 0, len(stale))
+	for _, s := range stale {
+		names = append(names, s.ID)
+	}
+	sink.Emit(event.Event{Kind: event.Notice, Level: event.LevelInfo,
+		Text: fmt.Sprintf("harness: %d stale prompt note(s) — not loaded into any session for %s: %s",
+			len(stale), refine.StaleNotesAfter, strings.Join(names, ", ")),
+		Detail: "delete or refresh them via /refine (harness Build to Delete)"})
+}
+
 // Options carries the per-run knobs a frontend chooses; everything else is read
 // from configuration. Model "" falls back to the configured default_model;
 // MaxSteps 0 uses automatic execution. RequireKey forces the executor's API key to
@@ -601,10 +646,13 @@ func build(ctx context.Context, opts Options) (*BuildResult, error) {
 	// memory pattern above).
 	if cfg.HarnessEnabled() {
 		sysPrompt += "\n\n" + refine.GuidanceBlock
-		sysPrompt = refine.Compose(sysPrompt,
-			refine.StoreFor(config.MemoryUserDir(), root),
-			refine.GlobalStoreFor(config.MemoryUserDir()),
-		)
+		projectHarness := refine.StoreFor(config.MemoryUserDir(), root)
+		globalHarness := refine.GlobalStoreFor(config.MemoryUserDir())
+		sysPrompt = refine.Compose(sysPrompt, projectHarness, globalHarness)
+		// Load-bearing ledger: this session records which notes entered its
+		// prefix (usage.json, outside the prefix — cache shape untouched), and
+		// notes no session has loaded for a long time surface as a notice.
+		recordHarnessLoads(sink, projectHarness, globalHarness)
 	}
 
 	// Skills: discover playbooks (built-in + project/custom/global) and fold their

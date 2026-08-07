@@ -233,6 +233,12 @@ type RefinementEvent struct {
 	Outcome    string    `json:"outcome"`
 	RollbackOf string    `json:"rollback_of,omitempty"`
 	CreatedAt  time.Time `json:"created_at"`
+	// Attribution identifies the trajectory context the refinement was applied
+	// in, so harness changes stay attributable to concrete sessions (the
+	// lightweight analogue of "fixed target environment" in harness evaluation).
+	SessionID   string `json:"session_id,omitempty"`
+	SessionPath string `json:"session_path,omitempty"`
+	GoalResult  string `json:"goal_result,omitempty"`
 	// Applied carries the before/after prompt-note snapshots for the prompt
 	// edits in this event, keyed by note id.
 	Applied []AppliedEdit `json:"applied,omitempty"`

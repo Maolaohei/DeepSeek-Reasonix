@@ -43,6 +43,19 @@ const (
 	summaryTagClose = "</compaction-summary>"
 )
 
+// Error-sample retention for compaction digests. Verbatim failure samples from
+// the folded region ride the digest (the Meta-Harness lesson: diagnostic value
+// concentrates in error samples, and a digest is the only record that survives
+// trajectory bounding for later /refine passes). Bounded so the digest stays
+// small; empty when nothing failed in the fold, so default KeepErrors sessions
+// (where errors are kept verbatim, not folded) pay nothing.
+const (
+	maxErrorSamples     = 3
+	maxErrorSampleChars = 500
+	errorSamplesOpen    = "<compaction-errors>"
+	errorSamplesClose   = "</compaction-errors>"
+)
+
 // summaryTimeout bounds one summarizer call so a stalled stream surfaces a clear
 // failure (then a mechanical fold) instead of hanging compaction indefinitely.
 const summaryTimeout = 90 * time.Second
@@ -324,6 +337,13 @@ func (a *Agent) compact(ctx context.Context, trigger, instructions string, force
 		return err
 	}
 
+	// Verbatim tool-failure samples from the fold keep their diagnostic text
+	// alive after the region is dropped — the digest is what later /refine and
+	// review-gate passes see once the trajectory is bounded.
+	if samples := extractErrorSamples(fold); samples != "" {
+		summary += "\n\n" + samples
+	}
+
 	compacted := make([]provider.Message, 0, head+len(kept)+1+len(msgs)-start)
 	compacted = append(compacted, msgs[:head]...)
 	compacted = append(compacted, kept...)
@@ -570,6 +590,55 @@ func shouldKeepMessage(m provider.Message, policy KeepPolicy) bool {
 		return true
 	}
 	return false
+}
+
+// looksLikeToolFailure reports whether a tool result carries a recognizable
+// failure signal. This is deliberately broader than isErrorMessage (which
+// guards the KeepErrors retention policy and must stay conservative): here a
+// common failure phrase inside the text is enough, because the cost of a false
+// positive is just a few hundred extra characters in a digest.
+func looksLikeToolFailure(content string) bool {
+	s := strings.ToLower(strings.TrimSpace(content))
+	if strings.HasPrefix(s, "error:") || strings.HasPrefix(s, "blocked:") {
+		return true
+	}
+	return strings.Contains(s, "failed to") || strings.Contains(s, "exit status") || strings.Contains(s, "fatal")
+}
+
+// extractErrorSamples collects verbatim tool-failure samples from the folded
+// region: at most maxErrorSamples messages, each flattened and clipped to
+// maxErrorSampleChars, prefixed with the failing tool's name. Returns "" when
+// the fold contains no recognizable failures.
+func extractErrorSamples(fold []provider.Message) string {
+	var samples []string
+	for _, m := range fold {
+		if m.Role != provider.RoleTool || !looksLikeToolFailure(m.Content) {
+			continue
+		}
+		name := m.Name
+		if name == "" {
+			name = "tool"
+		}
+		samples = append(samples, "["+name+"] "+clipErrorSample(m.Content))
+		if len(samples) >= maxErrorSamples {
+			break
+		}
+	}
+	if len(samples) == 0 {
+		return ""
+	}
+	return errorSamplesOpen + "\nVerbatim tool failure samples from the folded region (kept for diagnosis):\n" +
+		strings.Join(samples, "\n") + "\n" + errorSamplesClose
+}
+
+// clipErrorSample flattens a tool result to a single line and bounds its
+// length, keeping the diagnostic head.
+func clipErrorSample(content string) string {
+	flat := strings.Join(strings.Fields(content), " ")
+	if len(flat) <= maxErrorSampleChars {
+		return flat
+	}
+	return flat[:maxErrorSampleChars] + "…"
 }
 
 func isErrorMessage(m provider.Message) bool {

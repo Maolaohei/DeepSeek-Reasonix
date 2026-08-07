@@ -3,9 +3,13 @@ package control
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
+	"reasonix/internal/agent"
 	"reasonix/internal/config"
 	"reasonix/internal/event"
 	"reasonix/internal/memory"
@@ -85,6 +89,9 @@ func (c *Controller) refineRun(ctx context.Context, scope refine.Scope, rollback
 	}
 
 	conversation := c.refineTrajectory()
+	if recs := c.refineSessionRecords(); recs != "" {
+		conversation += "\n\n<session_records>\n" + recs + "\n</session_records>"
+	}
 	notes := append(append([]refine.PromptNote{}, c.harnessStore(refine.ScopeProject).ListNotes()...),
 		c.harnessStore(refine.ScopeGlobal).ListNotes()...)
 	overview := refine.RenderOverview(notes, c.refineExtras()...)
@@ -105,7 +112,11 @@ func (c *Controller) refineRun(ctx context.Context, scope refine.Scope, rollback
 	if err != nil {
 		return "", err
 	}
-	results, err := refine.ApplyProposal(store, proposal, baseline, time.Now())
+	results, err := refine.ApplyProposal(store, proposal, baseline, time.Now(), refine.Attribution{
+		SessionID:   agent.BranchID(c.SessionPath()),
+		SessionPath: c.SessionPath(),
+		GoalResult:  c.recentGoalResult(),
+	})
 	if err != nil {
 		return "", err
 	}
@@ -368,6 +379,75 @@ func (c *Controller) refineTrajectoryBounded(maxChars int) string {
 		return ""
 	}
 	return serializeTrajectory(sess.Snapshot(), maxChars)
+}
+
+// refineSessionRecords renders the on-disk session references appended to the
+// planner and review-gate conversations: the current session file, the most
+// recent sibling sessions, and the latest goal evaluation reason. The gate and
+// planner are tool-less bounded calls, so these are references, not dumps —
+// they let the planner cite the exact trajectory a lesson came from (persisted
+// into refinements.jsonl for attribution) and tell the in-conversation refine
+// tool where to read deeper.
+func (c *Controller) refineSessionRecords() string {
+	path := c.SessionPath()
+	if path == "" {
+		return ""
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "current session: %s\n", path)
+	if dir := c.SessionDir(); dir != "" {
+		if recent := recentSessionFiles(dir, path, 3); len(recent) > 0 {
+			b.WriteString("recent sessions:\n")
+			for _, p := range recent {
+				fmt.Fprintf(&b, "  %s\n", p)
+			}
+		}
+	}
+	if reason := c.recentGoalResult(); reason != "" {
+		fmt.Fprintf(&b, "latest goal evaluation: %s\n", oneLineRefine(reason))
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+// recentSessionFiles lists up to n sibling session files in dir, newest-first
+// by modification time, excluding the current session file.
+func recentSessionFiles(dir, exclude string, n int) []string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	type candidate struct {
+		path    string
+		modTime time.Time
+	}
+	var sessions []candidate
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(strings.ToLower(e.Name()), ".jsonl") {
+			continue
+		}
+		p := filepath.Join(dir, e.Name())
+		if p == exclude {
+			continue
+		}
+		if info, err := e.Info(); err == nil {
+			sessions = append(sessions, candidate{path: p, modTime: info.ModTime()})
+		}
+	}
+	sort.Slice(sessions, func(i, j int) bool { return sessions[i].modTime.After(sessions[j].modTime) })
+	if len(sessions) > n {
+		sessions = sessions[:n]
+	}
+	paths := make([]string, 0, len(sessions))
+	for _, s := range sessions {
+		paths = append(paths, s.path)
+	}
+	return paths
+}
+
+// recentGoalResult returns the latest goal evaluator or continuation reason
+// text, "" when no goal has run or produced a reason.
+func (c *Controller) recentGoalResult() string {
+	return c.goals.lastContinuationReasonText()
 }
 
 // serializeTrajectory renders messages as a bounded plain-text transcript.

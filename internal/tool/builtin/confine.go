@@ -200,7 +200,7 @@ func confine(roots []string, target string) error {
 		return fmt.Errorf("resolve %s: %w", target, err)
 	}
 	for _, r := range roots {
-		if within(r, abs) {
+		if withinAllow(r, abs) {
 			return nil
 		}
 	}
@@ -249,6 +249,14 @@ func confinePreview(roots []string, guard SessionDataGuard, managed ManagedConfi
 // existing ancestor with EvalSymlinks and re-appends the not-yet-existing tail.
 // This stops a symlinked directory from smuggling a write outside a root.
 func realPath(path string) (string, error) {
+	if runtime.GOOS == "windows" {
+		// Strip the extended-length \\?\ prefix (and \\?\UNC\ → \\): a target
+		// spelled with the prefix is the same directory as its plain form, but
+		// filepath.Rel refuses to relate the two, which would spuriously fail
+		// the allow-side confine check (a model retry). EvalSymlinks then
+		// normalizes to the plain long form.
+		path = stripLongPathPrefix(path)
+	}
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return "", err
@@ -288,16 +296,51 @@ func within(root, path string) bool {
 // case, so realPath alone cannot be relied on for this.
 var foldPaths = runtime.GOOS == "windows" || runtime.GOOS == "darwin"
 
+// foldAllowPaths reports whether ALLOW-side (confine) checks fold case too.
+// Windows NTFS is case-insensitive in practice, so a write target spelled
+// with different case than the configured root (C:\Work vs c:\work) is the
+// same directory — refusing it is a spurious failure that costs the model a
+// retry. macOS is deliberately excluded: APFS can be case-sensitive, and
+// while folding a deny rule only ever refuses more (safe), folding an allow
+// rule could wave a genuinely different directory through on such a volume.
+var foldAllowPaths = runtime.GOOS == "windows"
+
 // withinFold is within with platform case folding, for DENY-side checks only
-// (forbid-read roots, the session-data guard). Allow-side checks (confine)
-// keep the exact within: folding an allow rule on a case-sensitive filesystem
-// would wave a genuinely different directory through, whereas folding a deny
-// rule only ever refuses more. On a case-sensitive macOS volume this can
-// refuse a legitimate same-letters-different-case path; the error text points
-// at allow_write / forbid_read config as the way out.
+// (forbid-read roots, the session-data guard). Folding a deny rule only ever
+// refuses more; on a case-sensitive macOS volume this can refuse a legitimate
+// same-letters-different-case path, and the error text points at
+// allow_write / forbid_read config as the way out.
 func withinFold(root, path string) bool {
 	if foldPaths {
 		return within(strings.ToLower(root), strings.ToLower(path))
 	}
 	return within(root, path)
+}
+
+// withinAllow is within with case folding where the platform's default
+// filesystem is case-insensitive (Windows; see foldAllowPaths). Used by the
+// allow-side confine check so a case-variant write target is not refused.
+func withinAllow(root, path string) bool {
+	if foldAllowPaths {
+		return within(strings.ToLower(root), strings.ToLower(path))
+	}
+	return within(root, path)
+}
+
+// stripLongPathPrefix removes the Windows extended-length path prefix
+// (\\?\ and \\?\UNC\) so a long-path target compares equal to its plain
+// form. No-op on non-Windows, on ordinary paths, and on the degenerate
+// prefix-only forms (stripping those would yield "" and filepath.Abs("")
+// would silently resolve to the working directory).
+func stripLongPathPrefix(p string) string {
+	if len(p) >= 4 && p[:4] == `\\?\` {
+		if len(p) > 8 && p[:8] == `\\?\UNC\` {
+			return `\\` + p[8:]
+		}
+		if len(p) > 4 {
+			return p[4:]
+		}
+		return p
+	}
+	return p
 }

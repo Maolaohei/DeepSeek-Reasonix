@@ -81,11 +81,6 @@ func RunForeground(ctx context.Context, req Request) Result {
 		defer cancel()
 	}
 
-	cmd := exec.CommandContext(runCtx, req.Argv[0], req.Argv[1:]...)
-	cmd.Dir = req.Dir
-	cmd.Env = req.Env
-	cmd.WaitDelay = waitDelay
-
 	collector := newOutputCollector(tool.OutputTailMaxBytes)
 	var writers []io.Writer
 	writers = append(writers, collector.combined, collector.tail)
@@ -99,8 +94,17 @@ func RunForeground(ctx context.Context, req Request) Result {
 	// The bounded tail therefore covers combined output rather than stderr only;
 	// failing commands routinely report on stdout, so the tail stays useful.
 	w := io.MultiWriter(writers...)
-	cmd.Stdout = w
-	cmd.Stderr = w
+
+	newCmd := func() *exec.Cmd {
+		cmd := exec.CommandContext(runCtx, req.Argv[0], req.Argv[1:]...)
+		cmd.Dir = req.Dir
+		cmd.Env = req.Env
+		cmd.WaitDelay = waitDelay
+		cmd.Stdout = w
+		cmd.Stderr = w
+		return cmd
+	}
+	cmd := newCmd()
 
 	run := req.Run
 	if run == nil {
@@ -110,14 +114,26 @@ func RunForeground(ctx context.Context, req Request) Result {
 	if source == "" {
 		source = "shellrun"
 	}
-	tracked, err := run(runCtx, cmd, proc.RunOptions{
+	runOpts := proc.RunOptions{
 		Track:           req.Track,
 		CancelWaitGrace: waitDelay + time.Second,
 		Source:          source,
 		ShellKind:       req.ShellKind,
 		ShellPath:       req.ShellPath,
 		CommandPreview:  req.CommandPreview,
-	})
+	}
+	tracked, err := run(runCtx, cmd, runOpts)
+
+	// A launch-phase failure (the shell process never started) is frequently
+	// transient on Windows — antivirus scan, path contention, shell warm-up.
+	// Retry once with a fresh process before classifying, so a spurious
+	// launch failure does not cost the model a whole retry round. Deterministic
+	// rejections (preflight validation, parent cancel, tool timeout) are not
+	// retried: runCtx.Err() is non-nil exactly when one of those fired.
+	if err != nil && !processStarted(cmd, err) && runCtx.Err() == nil {
+		cmd = newCmd()
+		tracked, err = run(runCtx, cmd, runOpts)
+	}
 
 	out := Result{
 		Combined:   collector.combined.String(),

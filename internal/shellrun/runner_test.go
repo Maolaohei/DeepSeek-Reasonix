@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"testing"
@@ -156,6 +157,76 @@ func TestRunForegroundLaunchFailure(t *testing.T) {
 	}
 	if res.ExitCode != nil {
 		t.Fatalf("exitCode should be nil for launch failure, got %v", *res.ExitCode)
+	}
+}
+
+// TestRunForegroundRetriesTransientLaunchFailure pins the Windows-stability
+// retry: a launch-phase failure (process never started) retries once with a
+// fresh process before being classified, so a transient start failure (AV
+// scan, path contention) does not surface as a tool error the model must
+// retry. Deterministic failures (the second launch fails too) still classify
+// as launch failure with exactly two attempts.
+func TestRunForegroundRetriesTransientLaunchFailure(t *testing.T) {
+	calls := 0
+	res := RunForeground(context.Background(), Request{
+		Argv:  []string{"shell", "-c", "echo hi"},
+		Track: false,
+		Run: func(ctx context.Context, cmd *exec.Cmd, opts proc.RunOptions) (*proc.TrackedCommand, error) {
+			calls++
+			if calls == 1 {
+				return nil, errors.New("exec: start failed (transient)")
+			}
+			cmd.Process = &os.Process{Pid: 4242}
+			cmd.ProcessState = &os.ProcessState{}
+			return nil, nil
+		},
+	})
+	if calls != 2 {
+		t.Fatalf("run calls = %d, want 2 (one retry after launch failure)", calls)
+	}
+	if res.State != tool.ShellStateCompleted {
+		t.Fatalf("state = %s, want completed after retry", res.State)
+	}
+	if res.ExitCode == nil || *res.ExitCode != 0 {
+		t.Fatalf("exit code = %v, want 0", res.ExitCode)
+	}
+
+	// A persistent launch failure must not loop: exactly two attempts, then
+	// the launch classification.
+	calls = 0
+	res = RunForeground(context.Background(), Request{
+		Argv:  []string{"shell", "-c", "echo hi"},
+		Track: false,
+		Run: func(ctx context.Context, cmd *exec.Cmd, opts proc.RunOptions) (*proc.TrackedCommand, error) {
+			calls++
+			return nil, errors.New("exec: no such file")
+		},
+	})
+	if calls != 2 {
+		t.Fatalf("persistent launch failure run calls = %d, want 2", calls)
+	}
+	if res.State != tool.ShellStateFailed || res.FailurePhase != tool.ShellPhaseLaunch {
+		t.Fatalf("state/phase = %s/%s, want failed/launch", res.State, res.FailurePhase)
+	}
+
+	// A normal execution failure is NOT retried (it is not a launch failure).
+	calls = 0
+	execCalls := 0
+	res = RunForeground(context.Background(), Request{
+		Argv:  []string{"shell", "-c", "exit 3"},
+		Track: false,
+		Run: func(ctx context.Context, cmd *exec.Cmd, opts proc.RunOptions) (*proc.TrackedCommand, error) {
+			calls++
+			cmd.Process = &os.Process{Pid: 1}
+			execCalls++
+			return nil, &exec.ExitError{ProcessState: &os.ProcessState{}}
+		},
+	})
+	if calls != 1 || execCalls != 1 {
+		t.Fatalf("execution failure calls = %d, want 1 (no retry)", calls)
+	}
+	if res.State != tool.ShellStateFailed || res.FailurePhase != tool.ShellPhaseExecution {
+		t.Fatalf("state/phase = %s/%s, want failed/execution", res.State, res.FailurePhase)
 	}
 }
 

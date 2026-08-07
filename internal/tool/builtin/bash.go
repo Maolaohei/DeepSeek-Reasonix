@@ -117,15 +117,24 @@ func (b bash) Description() string {
 			"  - file ops: Get-ChildItem (ls), Get-Content (cat), Remove-Item -Recurse -Force (rm -rf), Copy-Item (cp), Select-String (grep).\n"+
 			"  - no head/tail/which/touch: use Select-Object -First/-Last N, (Get-Command x).Source, New-Item.\n"+
 			"  - multi-line text to a native exe (e.g. git commit -m): use a single-quoted here-string @'...'@ (closing '@ at column 0)."+
-			bashToolSteer, shellName, chaining)
+			bashToolSteer+psColdStartNote, shellName, chaining)
 	}
-	return "Execute a command in the shell and return combined stdout/stderr." + bashToolSteer
+	return "Execute a command in the shell and return combined stdout/stderr." + bashToolSteer + bashColdStartNote
 }
 
 // bashToolSteer points the model at the cross-platform built-in tools instead of
 // shell utilities, so it doesn't reach for grep/cat/ls/find (absent or different
 // on native Windows) when a native tool already does the job everywhere.
 const bashToolSteer = " Use for builds, tests, git, package managers, etc. To search/read/list/edit/move files, prefer the dedicated tools (grep, read_file, ls, glob, edit_file, move_file) over shell grep/cat/ls/find/sed/mv/Move-Item — they behave identically on every OS. For symbol search or architecture questions, prefer LSP/read tools and targeted grep before shell commands."
+
+// bashColdStartNote / psColdStartNote keep the model from burning a shell
+// launch on trivial one-liners. Kept per-platform (no "PowerShell" wording in
+// the bash branch: the description contract pins that the bash variant must
+// not mention PowerShell).
+const (
+	bashColdStartNote = " Each shell call cold-starts a fresh shell process (~40 ms): batch related commands into one call and prefer the built-in tools when they fit."
+	psColdStartNote   = " Each shell call cold-starts a fresh PowerShell process (~200-460 ms): batch related commands into one call and prefer the built-in tools when they fit."
+)
 
 // resolved returns the bound shell, resolving lazily for the zero-value instance
 // (e.g. a registry that never went through ConfineBash).

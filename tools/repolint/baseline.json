@@ -2,8 +2,8 @@
   "limits": {
     "banner": 0,
     "commented-code": 0,
-    "essay": 4132,
-    "file-size": 74088,
+    "essay": 4136,
+    "file-size": 74097,
     "layering": 1,
     "marker": 0,
     "narrative": 66,
@@ -915,7 +915,7 @@
       "essay": 10
     },
     "internal/control/input.go": {
-      "essay": 8
+      "essay": 6
     },
     "internal/control/input_test.go": {
       "essay": 4,
@@ -1516,7 +1516,10 @@
       "essay": 8
     },
     "internal/shellrun/runner.go": {
-      "essay": 4
+      "essay": 7
+    },
+    "internal/shellrun/runner_test.go": {
+      "essay": 1
     },
     "internal/shellsafe/bash_redirect.go": {
       "essay": 5
@@ -1578,7 +1581,7 @@
     },
     "internal/tool/builtin/bash.go": {
       "essay": 14,
-      "file-size": 25
+      "file-size": 34
     },
     "internal/tool/builtin/bash_env_test.go": {
       "essay": 4
@@ -1599,7 +1602,7 @@
       "essay": 3
     },
     "internal/tool/builtin/confine.go": {
-      "essay": 16
+      "essay": 18
     },
     "internal/tool/builtin/encoding_helpers.go": {
       "essay": 1

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -47,6 +48,65 @@ func TestWithin(t *testing.T) {
 		}
 	}
 }
+
+// TestWithinAllowCaseFolding pins the allow-side case policy: Windows folds
+// (a case-variant write target is the same NTFS directory, so refusing it is
+// a spurious failure that costs the model a retry); every other platform
+// keeps exact matching (folding an allow rule on a case-sensitive volume
+// could wave a genuinely different directory through).
+func TestWithinAllowCaseFolding(t *testing.T) {
+	root := filepath.FromSlash("C:/Work/Proj")
+	other := filepath.FromSlash("c:/work/proj/src/a.go")
+	if got := withinAllow(root, other); got != foldAllowPaths {
+		t.Errorf("withinAllow(%q, %q) = %v, want %v (foldAllowPaths=%v)",
+			root, other, got, foldAllowPaths, foldAllowPaths)
+	}
+	// Case-folded or not, a genuinely different path stays outside.
+	if got := withinAllow(root, filepath.FromSlash("C:/Other/x.go")); got {
+		t.Error("different directory must stay outside the allow root")
+	}
+	// And the exact case always passes.
+	if !withinAllow(root, filepath.FromSlash("C:/Work/Proj/src/a.go")) {
+		t.Error("exact-case target must be within the allow root")
+	}
+}
+
+func TestStripLongPathPrefix(t *testing.T) {
+	cases := map[string]string{
+		`\\?\C:\Work\x`:          `C:\Work\x`,
+		`\\?\UNC\server\share\x`: `\\server\share\x`,
+		`C:\plain\path`:          `C:\plain\path`,
+		`\\server\share\plain`:   `\\server\share\plain`,
+		`\\?\`:                   `\\?\`, // degenerate: nothing after the prefix
+		"":                       "",
+	}
+	for in, want := range cases {
+		if got := stripLongPathPrefix(in); got != want {
+			t.Errorf("stripLongPathPrefix(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestRealPathStripsLongPathPrefix(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows-only extended-length prefix behavior")
+	}
+	dir := t.TempDir()
+	prefixed := `\\?\` + dir + `\child\file.txt`
+	got, err := realPath(prefixed)
+	if err != nil {
+		t.Fatalf("realPath(%q): %v", prefixed, err)
+	}
+	if hasLongPathPrefix(got) {
+		t.Fatalf("realPath kept the \\?\\ prefix: %q", got)
+	}
+	// The prefix-stripped target must be confined inside the plain root.
+	if err := confine([]string{dir}, prefixed); err != nil {
+		t.Fatalf("confine rejected a \\?\\-prefixed target inside the root: %v", err)
+	}
+}
+
+func hasLongPathPrefix(p string) bool { return len(p) >= 4 && p[:4] == `\\?\` }
 
 func TestConfineUnconfinedWhenNoRoots(t *testing.T) {
 	if err := confine(nil, "/anywhere/at/all"); err != nil {

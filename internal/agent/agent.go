@@ -280,8 +280,8 @@ type Agent struct {
 	// dispatch/results, usage, notices). The agent no longer formats output
 	// itself — a frontend's Sink decides how to render. Never nil; New defaults
 	// it to event.Discard.
-	sink event.Sink
-
+	sink                event.Sink
+	requireVisibleFinal bool // internal callers require final Content
 	// lastUsage caches the most recent per-turn telemetry the provider reported so
 	// the CLI can expose a context gauge without re-scraping the usage line. The
 	// run loop writes it while a frontend's status line reads it, so it is atomic.
@@ -1068,15 +1068,14 @@ type Options struct {
 	// provider instance. It is attached to emitted Usage events so downstream
 	// usage accounting can attribute tokens to the exact model.
 	ModelRef string
-
+	// RequireVisibleFinal makes internal callers reject reasoning-only responses.
+	RequireVisibleFinal bool
 	// Gate is the per-call permission gate. nil disables gating.
 	Gate Gate
-
 	// ReadOnlyExecution enables a permanent host-side read-only boundary for
 	// planner and research agents. It is intentionally independent of Plan mode
 	// so a stale collaboration flag cannot authorize a dynamic writer target.
 	ReadOnlyExecution bool
-
 	// PlannerMCPExecution enables Planner-trusted MCP through use_capability:
 	// authorized, non-destructive tools may run without readOnlyHint. Only
 	// NewPlannerAgent sets this; strict read-only sub-agents must not.
@@ -1257,10 +1256,7 @@ func New(prov provider.Provider, tools *tool.Registry, session *Session, opts Op
 	} else {
 		maxSubagentDepth = NormalizeMaxSubagentDepth(maxSubagentDepth)
 	}
-	subagentDepth := opts.SubagentDepth
-	if subagentDepth < 0 {
-		subagentDepth = 0
-	}
+	subagentDepth := max(opts.SubagentDepth, 0)
 	reasoningByteLimit := opts.ReasoningByteLimit
 	if reasoningByteLimit == 0 {
 		reasoningByteLimit = defaultReasoningByteLimit
@@ -1278,6 +1274,7 @@ func New(prov provider.Provider, tools *tool.Registry, session *Session, opts Op
 		usageSource:               usageSourceOrDefault(opts.UsageSource, event.UsageSourceExecutor),
 		modelRef:                  strings.TrimSpace(opts.ModelRef),
 		sink:                      sink,
+		requireVisibleFinal:       opts.RequireVisibleFinal,
 		gate:                      gate,
 		extensions:                opts.Extensions,
 		recoveryGate:              opts.RecoveryGate,
@@ -3373,7 +3370,7 @@ launch:
 			<-sem
 			break
 		}
-		i := i
+
 		wg.Add(1)
 		ranUntil = i + 1
 		go func() {
@@ -4092,8 +4089,8 @@ func (a *Agent) toolReadOnly(name string) bool {
 // firstLine returns s up to its first newline — a one-line failure summary for
 // the display Err, while the full error stays in the model-facing output.
 func firstLine(s string) string {
-	if i := strings.IndexByte(s, '\n'); i >= 0 {
-		return s[:i]
+	if before, _, ok := strings.Cut(s, "\n"); ok {
+		return before
 	}
 	return s
 }

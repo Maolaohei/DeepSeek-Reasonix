@@ -37,6 +37,7 @@ mem.prof
 /reasonix.toml
 /desktop/.env
 /desktop/reasonix.toml
+/novels/
 
 # Node / frontend dependencies and caches
 node_modules/

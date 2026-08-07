@@ -11,19 +11,12 @@ import (
 
 // TestNovelToolLifecycle drives the tool through the same lifecycle the model
 // would: init a workspace, status, write a chapter body, advance, then detect
-// an external edit via check.
+// an external edit via check. The tool is bound to a workDir (the desktop
+// per-tab project root), not the process cwd.
 func TestNovelToolLifecycle(t *testing.T) {
 	dir := t.TempDir()
-	prev, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chdir(dir); err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = os.Chdir(prev) }()
 
-	tool := novelTool{}
+	tool := novelTool{workDir: dir}
 	ctx := context.Background()
 	run := func(args string) string {
 		t.Helper()
@@ -37,6 +30,9 @@ func TestNovelToolLifecycle(t *testing.T) {
 	out := run(`{"op":"init","title":"测试书"}`)
 	if !strings.Contains(out, "created") {
 		t.Fatalf("init: %q", out)
+	}
+	if !strings.Contains(out, dir) {
+		t.Fatalf("workspace must live under the bound workDir, got %q", out)
 	}
 	out = run(`{"op":"status","title":"测试书"}`)
 	if !strings.Contains(out, "下一步") || !strings.Contains(out, "ch001") {

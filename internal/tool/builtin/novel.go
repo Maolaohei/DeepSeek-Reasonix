@@ -17,7 +17,12 @@ func init() { tool.RegisterBuiltin(novelTool{}) }
 // advance), so continuity bookkeeping does not depend on the user running
 // CLI commands. The craft lives in the /novel skill; this tool provides the
 // discipline.
-type novelTool struct{}
+type novelTool struct {
+	// workDir is the agent-bound project directory (per-tab workspace root in
+	// the desktop host). Empty falls back to the process cwd, matching the
+	// compile-time built-ins.
+	workDir string
+}
 
 func (novelTool) Name() string { return "novel" }
 
@@ -43,7 +48,7 @@ type novelInput struct {
 	Chapter string `json:"chapter"`
 }
 
-func (novelTool) Execute(ctx context.Context, args json.RawMessage) (string, error) {
+func (t novelTool) Execute(ctx context.Context, args json.RawMessage) (string, error) {
 	var in novelInput
 	if err := json.Unmarshal(args, &in); err != nil {
 		return "", err
@@ -51,9 +56,13 @@ func (novelTool) Execute(ctx context.Context, args json.RawMessage) (string, err
 	if in.Op == "" {
 		return "", fmt.Errorf("op is required: status, init, check, advance")
 	}
-	wd, err := os.Getwd()
-	if err != nil {
-		return "", err
+	wd := t.workDir
+	if wd == "" {
+		var err error
+		wd, err = os.Getwd()
+		if err != nil {
+			return "", err
+		}
 	}
 	switch in.Op {
 	case "status":

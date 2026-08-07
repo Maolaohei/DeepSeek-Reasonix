@@ -119,6 +119,16 @@ func (b bash) Description() string {
 			"  - multi-line text to a native exe (e.g. git commit -m): use a single-quoted here-string @'...'@ (closing '@ at column 0)."+
 			bashToolSteer+psColdStartNote, shellName, chaining)
 	}
+	if sh.Kind == sandbox.ShellCmd {
+		return "Execute a command in the shell and return combined stdout/stderr. " +
+			"NOTE: bash is not available on this host — commands run under cmd.exe, so write cmd syntax, not bash:\n" +
+			"  - chaining: '&&' and '||' are supported; use '%errorlevel%' after a command, not '$?'.\n" +
+			"  - redirect: 'nul' is the null device ('2>nul' drops stderr); '%VAR%' expands env vars.\n" +
+			"  - file ops: dir (ls), type (cat), del /s /q (rm -rf), copy/xcopy, findstr (grep).\n" +
+			"  - no head/tail/which: use 'more', 'for /f', or 'where'.\n" +
+			"  - a command that is not an exe (dir, echo) exits 0 even on failure: check output text, not exit code.\n" +
+			bashToolSteer + cmdColdStartNote
+	}
 	return "Execute a command in the shell and return combined stdout/stderr." + bashToolSteer + bashColdStartNote
 }
 
@@ -127,13 +137,14 @@ func (b bash) Description() string {
 // on native Windows) when a native tool already does the job everywhere.
 const bashToolSteer = " Use for builds, tests, git, package managers, etc. To search/read/list/edit/move files, prefer the dedicated tools (grep, read_file, ls, glob, edit_file, move_file) over shell grep/cat/ls/find/sed/mv/Move-Item — they behave identically on every OS. For symbol search or architecture questions, prefer LSP/read tools and targeted grep before shell commands."
 
-// bashColdStartNote / psColdStartNote keep the model from burning a shell
-// launch on trivial one-liners. Kept per-platform (no "PowerShell" wording in
-// the bash branch: the description contract pins that the bash variant must
-// not mention PowerShell).
+// bashColdStartNote / psColdStartNote / cmdColdStartNote keep the model from
+// burning a shell launch on trivial one-liners. Kept per-platform (no
+// "PowerShell" wording in the bash branch: the description contract pins that
+// the bash variant must not mention PowerShell).
 const (
 	bashColdStartNote = " Each shell call cold-starts a fresh shell process (~40 ms): batch related commands into one call and prefer the built-in tools when they fit."
 	psColdStartNote   = " Each shell call cold-starts a fresh PowerShell process (~200-460 ms): batch related commands into one call and prefer the built-in tools when they fit."
+	cmdColdStartNote  = " Each shell call cold-starts a fresh cmd.exe process (~13 ms): batch related commands into one call and prefer the built-in tools when they fit."
 )
 
 // resolved returns the bound shell, resolving lazily for the zero-value instance
@@ -306,7 +317,7 @@ func (b bash) ExecuteDetailed(ctx context.Context, args json.RawMessage) (tool.D
 	return tool.DetailedResult{
 		Output:    appendSessionDataHint(out, b.guard.CommandHint(b.workDir, p.Command)),
 		Execution: ex,
-	}, err
+	}, annotateCommandNotFound(err)
 }
 
 func applyTerminalResult(ex *tool.ShellExecution, err error) {

@@ -56,13 +56,25 @@ func (updateGoal) Execute(ctx context.Context, args json.RawMessage) (string, er
 	if err := json.Unmarshal(args, &p); err != nil {
 		return "", fmt.Errorf("invalid update_goal args: %w", err)
 	}
-	p.Status = strings.ToLower(strings.TrimSpace(p.Status))
+	// Tolerate the common off-contract spellings models actually emit
+	// ("done", "finished", "in_progress", "stuck", ...) by normalizing them
+	// onto the contract statuses; anything unrecognized still fails closed
+	// with the accepted set spelled out.
+	p.Status = normalizeGoalStatus(p.Status)
 	switch p.Status {
 	case "continue", "complete", "blocked":
 	default:
 		return "", fmt.Errorf("update_goal: status must be one of continue|complete|blocked, got %q — no goal state was changed", p.Status)
 	}
-	if (p.Status == "continue" || p.Status == "blocked") && strings.TrimSpace(p.Reason) == "" {
+	// Reason fallback: for continue/blocked a missing reason borrows
+	// next_action when present (the model usually restates the reason there
+	// anyway); only a fully empty pair fails, keeping the host's decision
+	// input intact.
+	reason := strings.TrimSpace(p.Reason)
+	if reason == "" && (p.Status == "continue" || p.Status == "blocked") {
+		reason = strings.TrimSpace(p.NextAction)
+	}
+	if reason == "" && (p.Status == "continue" || p.Status == "blocked") {
 		return "", fmt.Errorf("update_goal: reason is required for %s — no goal state was changed", p.Status)
 	}
 	recorder, ok := tool.GoalTurnRecorderFromContext(ctx)
@@ -71,7 +83,27 @@ func (updateGoal) Execute(ctx context.Context, args json.RawMessage) (string, er
 	}
 	return recorder.RecordGoalReport(tool.GoalReport{
 		Status:     p.Status,
-		Reason:     strings.TrimSpace(p.Reason),
+		Reason:     reason,
 		NextAction: strings.TrimSpace(p.NextAction),
 	})
+}
+
+// normalizeGoalStatus maps common off-contract status spellings onto the
+// update_goal contract values. Unrecognized values pass through unchanged so
+// the caller's fail-closed error keeps the model's own wording.
+func normalizeGoalStatus(status string) string {
+	s := strings.ToLower(strings.TrimSpace(status))
+	switch s {
+	case "continue", "complete", "blocked":
+		return s
+	}
+	switch s {
+	case "done", "finished", "finish", "success", "succeeded", "yes", "completed", "resolved":
+		return "complete"
+	case "working", "in_progress", "in-progress", "progress", "ongoing", "running":
+		return "continue"
+	case "stuck", "failed", "cannot", "can't", "unable", "error", "waiting", "pending":
+		return "blocked"
+	}
+	return s
 }

@@ -33,11 +33,15 @@ type ShellKind int
 const (
 	ShellBash ShellKind = iota
 	ShellPowerShell
+	ShellCmd
 )
 
 func (k ShellKind) String() string {
-	if k == ShellPowerShell {
+	switch k {
+	case ShellPowerShell:
 		return "powershell"
+	case ShellCmd:
+		return "cmd"
 	}
 	return "bash"
 }
@@ -92,12 +96,38 @@ func resolveShell(prefer, path string, warn io.Writer, goos string, lookPath fun
 		}
 		return Shell{}, false
 	}
+	// findCmd locates cmd.exe: %SystemRoot%\System32\cmd.exe is present on every
+	// Windows install, with a PATH lookup as the injected-env fallback. cmd is
+	// the last-resort interpreter (13 ms cold start vs 43 ms bash / 200-460 ms
+	// PowerShell) so a Windows host without bash or PowerShell still gets a
+	// working shell.
+	findCmd := func() (Shell, bool) {
+		if goos != "windows" {
+			return Shell{}, false
+		}
+		for _, root := range []string{os.Getenv("SystemRoot"), os.Getenv("windir")} {
+			if root == "" {
+				continue
+			}
+			p := filepath.Join(root, "System32", "cmd.exe")
+			if exists(p) {
+				return Shell{Kind: ShellCmd, Path: p}, true
+			}
+		}
+		if p, err := lookPath("cmd"); err == nil {
+			return Shell{Kind: ShellCmd, Path: p}, true
+		}
+		return Shell{}, false
+	}
 	auto := func() Shell {
 		if sh, ok := findBash(); ok {
 			return sh
 		}
 		if goos == "windows" {
 			if sh, ok := findPowerShell([]string{"pwsh", "powershell"}); ok {
+				return sh
+			}
+			if sh, ok := findCmd(); ok {
 				return sh
 			}
 		}
@@ -129,9 +159,18 @@ func resolveShell(prefer, path string, warn io.Writer, goos string, lookPath fun
 		}
 		warnMissingShell(warn, prefer)
 		return auto()
+	case "cmd":
+		if path != "" && exists(path) {
+			return Shell{Kind: ShellCmd, Path: path}
+		}
+		if sh, ok := findCmd(); ok {
+			return sh
+		}
+		warnMissingShell(warn, prefer)
+		return auto()
 	default:
 		if warn != nil {
-			fmt.Fprintf(warn, "warning: [tools.shell] prefer=%q is not recognised (use auto/bash/powershell); using auto-detection\n", prefer)
+			fmt.Fprintf(warn, "warning: [tools.shell] prefer=%q is not recognised (use auto/bash/powershell/pwsh/cmd); using auto-detection\n", prefer)
 		}
 		return auto()
 	}
@@ -364,6 +403,14 @@ func (s Shell) argv(command string) []string {
 	}
 	if s.Kind == ShellPowerShell {
 		return []string{path, "-NoProfile", "-NonInteractive", "-Command", PowerShellUTF8Script(normalizeNullRedirects(command, "$null"))}
+	}
+	if s.Kind == ShellCmd {
+		// cmd.exe speaks the OEM code page by default (GBK on zh-CN systems), so
+		// the output of a UTF-8 command would garble; chcp 65001 switches the
+		// session to UTF-8 first. /d skips AutoRun, /s preserves quoting, /c runs
+		// and exits. nul is the cmd null device; normalizeNullRedirects maps the
+		// other shells' aliases onto it.
+		return []string{path, "/d", "/s", "/c", "chcp 65001 >nul & " + normalizeNullRedirects(command, "nul")}
 	}
 	return []string{path, "-c", normalizeNullRedirects(command, "/dev/null")}
 }

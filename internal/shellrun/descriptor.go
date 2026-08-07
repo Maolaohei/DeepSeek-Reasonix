@@ -37,6 +37,8 @@ func DisplayName(ex *tool.ShellExecution) string {
 		return "Windows PowerShell"
 	case tool.ShellNamePwsh:
 		return "PowerShell 7+"
+	case tool.ShellNameCmd:
+		return "cmd.exe"
 	case tool.ShellNameBash:
 		return "bash"
 	default:
@@ -48,7 +50,7 @@ func DisplayName(ex *tool.ShellExecution) string {
 }
 
 // classifyShell maps a resolved Shell to contract names.
-// powershell.exe → powershell / 5.1; pwsh → pwsh / 7+; Git for Windows bash → git-bash.
+// powershell.exe → powershell / 5.1; pwsh → pwsh / 7+; Git for Windows bash → git-bash; cmd.exe → cmd.
 func classifyShell(sh sandbox.Shell) (name, version string) {
 	base := strings.ToLower(filepath.Base(sh.Path))
 	base = strings.TrimSuffix(base, ".exe")
@@ -58,6 +60,8 @@ func classifyShell(sh sandbox.Shell) (name, version string) {
 			return tool.ShellNamePwsh, tool.ShellVersionPS7
 		}
 		return tool.ShellNamePowerShell, tool.ShellVersionPS51
+	case sandbox.ShellCmd:
+		return tool.ShellNameCmd, ""
 	default:
 		if isGitBashPath(sh.Path) {
 			return tool.ShellNameGitBash, ""

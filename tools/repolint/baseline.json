@@ -2,8 +2,8 @@
   "limits": {
     "banner": 0,
     "commented-code": 0,
-    "essay": 4136,
-    "file-size": 74097,
+    "essay": 4144,
+    "file-size": 74108,
     "layering": 1,
     "marker": 0,
     "narrative": 66,
@@ -1482,7 +1482,7 @@
       "essay": 1
     },
     "internal/sandbox/shell.go": {
-      "essay": 1
+      "essay": 5
     },
     "internal/secrets/redact.go": {
       "essay": 1
@@ -1581,10 +1581,13 @@
     },
     "internal/tool/builtin/bash.go": {
       "essay": 14,
-      "file-size": 34
+      "file-size": 45
     },
     "internal/tool/builtin/bash_env_test.go": {
       "essay": 4
+    },
+    "internal/tool/builtin/bash_hint.go": {
+      "essay": 2
     },
     "internal/tool/builtin/bgjobs.go": {
       "essay": 10
@@ -1632,7 +1635,7 @@
       "essay": 25
     },
     "internal/tool/builtin/updategoal.go": {
-      "essay": 2
+      "essay": 4
     },
     "internal/tool/builtin/webfetch.go": {
       "essay": 3

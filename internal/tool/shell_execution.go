@@ -79,6 +79,7 @@ const (
 	ShellNameGitBash    = "git-bash"
 	ShellNamePowerShell = "powershell"
 	ShellNamePwsh       = "pwsh"
+	ShellNameCmd        = "cmd"
 )
 
 // PowerShell version labels.

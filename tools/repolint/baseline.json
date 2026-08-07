@@ -2,8 +2,8 @@
   "limits": {
     "banner": 0,
     "commented-code": 0,
-    "essay": 4151,
-    "file-size": 73888,
+    "essay": 4152,
+    "file-size": 73926,
     "layering": 1,
     "marker": 0,
     "narrative": 66,
@@ -24,7 +24,7 @@
     },
     "desktop/app.go": {
       "essay": 90,
-      "file-size": 11538
+      "file-size": 11549
     },
     "desktop/app_autosave_test.go": {
       "essay": 1
@@ -186,8 +186,8 @@
       "essay": 1
     },
     "desktop/tabs.go": {
-      "essay": 123,
-      "file-size": 8804
+      "essay": 124,
+      "file-size": 8831
     },
     "desktop/tabs_order_test.go": {
       "test-file-size": 395

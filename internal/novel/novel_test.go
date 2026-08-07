@@ -18,6 +18,15 @@ func TestInitScaffoldAndMarkStable(t *testing.T) {
 			t.Fatalf("missing scaffold %s: %v", f, err)
 		}
 	}
+	// The style template must lead with original-author excerpts for mimicry;
+	// AI-written samples are only a fallback.
+	style, err := os.ReadFile(filepath.Join(ws, "style.md"))
+	if err != nil {
+		t.Fatalf("read style.md: %v", err)
+	}
+	if !strings.Contains(string(style), "优先放原文片段") {
+		t.Fatalf("style.md must instruct original-first mimicry, got %q", string(style))
+	}
 	s, err := Load(ws)
 	if err != nil {
 		t.Fatalf("Load: %v", err)

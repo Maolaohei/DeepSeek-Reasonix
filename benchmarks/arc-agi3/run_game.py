@@ -26,7 +26,16 @@ ACTION_NAMES = {0: "RESET", 1: "ACTION1", 2: "ACTION2", 3: "ACTION3",
                 4: "ACTION4", 5: "ACTION5", 6: "ACTION6", 7: "ACTION7"}
 
 
-def write_state(path: Path, obs, step: int, history: list[str], last_action: str | None) -> None:
+def parse_action_line(line: str) -> tuple[str, str]:
+    """Split "ACTION3 # reasoning..." into (ACTION3, reasoning)."""
+    token = line.split()[0].strip().upper()
+    reasoning = ""
+    if "#" in line:
+        reasoning = line.split("#", 1)[1].strip()
+    return token, reasoning
+
+
+def write_state(path: Path, obs, step: int, history: list[dict], last_action: str | None) -> None:
     """Serialize a FrameDataRaw into the agent-visible state.json."""
     frames = getattr(obs, "frame", []) or []
     grid = [f.tolist() for f in frames] if frames else []
@@ -114,7 +123,7 @@ def main() -> int:
     arc = arc_agi.Arcade()
     env = arc.make(args.game)
     obs = env.reset()
-    history: list[str] = []
+    history: list[dict] = []
     last_action: str | None = None
     result: dict = {"game": args.game, "steps": 0, "final_state": "", "levels_completed": 0,
                     "win_levels": 0, "score": 0.0, "errors": []}
@@ -152,13 +161,13 @@ def main() -> int:
             result["errors"].append(f"step {step}: no action written (agent output: {output[:300]})")
             # A failed step is not a failed game: keep going so a single bad
             # step (round limit, timeout) cannot end the run early.
-            history.append("NO_ACTION")
+            history.append({"action": "NO_ACTION"})
             last_action = "NO_ACTION"
             continue
-        token = action_line.split()[0].strip().upper()
+        token, reasoning = parse_action_line(action_line)
         if token not in ACTION_NAMES.values():
             result["errors"].append(f"step {step}: invalid action token {token!r}")
-            history.append(f"INVALID:{token}")
+            history.append({"action": f"INVALID:{token}", "reasoning": reasoning})
             last_action = f"INVALID:{token}"
             continue
         action_id = next(i for i, n in ACTION_NAMES.items() if n == token)
@@ -171,7 +180,7 @@ def main() -> int:
         if obs is None:
             result["errors"].append(f"step {step}: env.step returned None")
             break
-        history.append(token)
+        history.append({"action": token, "reasoning": reasoning})
         last_action = token
 
     final_state = str(getattr(obs, "state", ""))

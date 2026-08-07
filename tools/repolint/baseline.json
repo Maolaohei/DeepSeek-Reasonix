@@ -2,12 +2,12 @@
   "limits": {
     "banner": 0,
     "commented-code": 0,
-    "essay": 4146,
-    "file-size": 74108,
+    "essay": 4151,
+    "file-size": 73885,
     "layering": 1,
     "marker": 0,
     "narrative": 66,
-    "test-file-size": 64940
+    "test-file-size": 64761
   },
   "files": {
     "cmd/e2ebench/main.go": {
@@ -298,8 +298,8 @@
       "essay": 7
     },
     "internal/agent/agent.go": {
-      "essay": 128,
-      "file-size": 3346
+      "essay": 127,
+      "file-size": 3277
     },
     "internal/agent/ask.go": {
       "essay": 4
@@ -323,20 +323,20 @@
       "essay": 1
     },
     "internal/agent/compact.go": {
-      "essay": 22,
-      "file-size": 161
+      "essay": 29,
+      "file-size": 46
     },
     "internal/agent/compact_test.go": {
-      "essay": 3,
-      "test-file-size": 245
+      "essay": 4,
+      "test-file-size": 42
     },
     "internal/agent/coordinator.go": {
       "essay": 17,
       "file-size": 264
     },
     "internal/agent/coordinator_test.go": {
-      "essay": 5,
-      "test-file-size": 1244
+      "essay": 3,
+      "test-file-size": 1239
     },
     "internal/agent/delivery_hardening_test.go": {
       "essay": 5
@@ -877,7 +877,7 @@
     },
     "internal/control/controller.go": {
       "essay": 189,
-      "file-size": 5434,
+      "file-size": 5415,
       "narrative": 4
     },
     "internal/control/controller_test.go": {
@@ -1155,7 +1155,7 @@
     },
     "internal/hook/hook.go": {
       "essay": 44,
-      "file-size": 829
+      "file-size": 792
     },
     "internal/hook/hook_test.go": {
       "essay": 8,
@@ -1322,11 +1322,11 @@
     },
     "internal/provider/anthropic/anthropic.go": {
       "essay": 36,
-      "file-size": 100
+      "file-size": 108
     },
     "internal/provider/anthropic/anthropic_test.go": {
       "essay": 1,
-      "test-file-size": 221
+      "test-file-size": 250
     },
     "internal/provider/openai/host.go": {
       "essay": 8
@@ -1343,12 +1343,12 @@
       "essay": 7
     },
     "internal/provider/provider.go": {
-      "essay": 50,
-      "file-size": 345
+      "essay": 51,
+      "file-size": 353
     },
     "internal/provider/responses/responses.go": {
-      "essay": 26,
-      "file-size": 78
+      "essay": 25,
+      "file-size": 79
     },
     "internal/provider/responses/responses_test.go": {
       "essay": 6,

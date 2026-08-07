@@ -238,8 +238,7 @@ func cliCompletionRootSpec() cliCompletionSpec {
 		completionSpec("task", []cliCompletionFlag{help},
 			// Machine list/show: --json --dir --project-root --session (task_machine.go).
 			completionSpec("list", completionTaskMachineListFlags(help)),
-			completionSpec("show", completionTaskMachineShowFlags(help)),
-			// Live monitor surface (task.go FlagSets).
+			completionSpec("show", completionTaskMachineShowFlags(help)),			// Live monitor surface (task.go FlagSets).
 			completionSpec("monitor", []cliCompletionFlag{help},
 				completionSpec("list", completionTaskListFlags(help)),
 				completionSpec("status", completionTaskStatusFlags(help)),
@@ -265,6 +264,12 @@ func cliCompletionRootSpec() cliCompletionSpec {
 		completionSpec("review", []cliCompletionFlag{
 			completionFlag("--base --commit --instructions", cliCompletionStaticValue), model, help,
 		}),
+		completionSpec("novel", []cliCompletionFlag{help},
+			completionSpec("init", []cliCompletionFlag{help}),
+			completionSpec("status", []cliCompletionFlag{help}),
+			completionSpec("check", []cliCompletionFlag{help}),
+			completionSpec("advance", []cliCompletionFlag{help}),
+		),
 		completionSpec("bot", []cliCompletionFlag{help},
 			completionSpec("start", []cliCompletionFlag{completionFlag("--channels --dir", cliCompletionStaticValue), model, help}),
 			completionSpec("doctor", []cliCompletionFlag{completionFlag("--json --deep", cliCompletionNoValue), help}),

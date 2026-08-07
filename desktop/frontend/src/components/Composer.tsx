@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ClipboardEvent, DragEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from "react";
-import { ArrowRight, ArrowUp, AtSign, Check, ChevronDown, ChevronUp, ChevronsUpDown, CornerDownRight, Equal, Eye, FilePlus2, FileText, Flag, Folder, Gauge, Hash, List, MessageSquare, Plus, Search, Shield, ShieldAlert, ShieldCheck, Square, Target, Trash2, X } from "lucide-react";
+import { ArrowRight, ArrowUp, AtSign, BookOpen, Check, ChevronDown, ChevronUp, ChevronsUpDown, CornerDownRight, Equal, Eye, FilePlus2, FileText, Flag, Folder, Gauge, Hash, List, MessageSquare, Plus, Search, Shield, ShieldAlert, ShieldCheck, Square, Target, Trash2, X } from "lucide-react";
 import { asArray } from "../lib/array";
 import { filterAtMatches } from "../lib/atMatches";
 import { DedupIndex, sha256 } from "../lib/attachDedup";
@@ -2032,6 +2032,7 @@ export function Composer({
   const planModeOn = collaborationMode === "plan";
   const activeGoal = (goal ?? "").trim();
   const goalModeOn = collaborationMode === "goal";
+  const novelModeOn = collaborationMode === "novel";
   const warnImageInputFallback = useCallback((message = t("composer.imageInputUnsupported")) => {
     showToast(message, "warn");
   }, [showToast, t]);
@@ -3569,13 +3570,17 @@ export function Composer({
     ? "composer.taskModePlanShort"
     : collaborationMode === "goal"
       ? "composer.taskModeGoalShort"
-      : "composer.taskModeDirectShort";
+      : collaborationMode === "novel"
+        ? "composer.taskModeNovelShort"
+        : "composer.taskModeDirectShort";
   const taskModeTooltipSummaryKey = collaborationMode === "plan"
     ? "composer.taskModePlanTooltipSummary"
     : collaborationMode === "goal"
       ? "composer.taskModeGoalTooltipSummary"
-      : "composer.taskModeDirectTooltipSummary";
-  const TaskModeIcon = collaborationMode === "plan" ? List : collaborationMode === "goal" ? Target : ArrowRight;
+      : collaborationMode === "novel"
+        ? "composer.taskModeNovelTooltipSummary"
+        : "composer.taskModeDirectTooltipSummary";
+  const TaskModeIcon = collaborationMode === "plan" ? List : collaborationMode === "goal" ? Target : collaborationMode === "novel" ? BookOpen : ArrowRight;
   const taskModeTriggerLabel = t("composer.taskModeTrigger", { mode: t(taskModeShortKey) });
   const taskModeTooltipLabel = t("composer.controlTooltip", {
     category: t("composer.intentMenuTitle"),
@@ -3888,6 +3893,21 @@ export function Composer({
               <span className="composer-access-menu__desc">{activeGoal || t("composer.taskModeGoalDesc")}</span>
             </span>
             {goalModeOn && <Check className="composer-intent-menu__check" size={16} aria-hidden="true" />}
+          </button>
+          <button
+            type="button"
+            role="menuitemradio"
+            aria-checked={novelModeOn}
+            className={`composer-access-menu__item composer-intent-menu__item${novelModeOn ? " composer-access-menu__item--active" : ""}`}
+            onClick={() => chooseTaskMode("novel")}
+            disabled={disabled || running}
+          >
+            <BookOpen size={16} />
+            <span className="composer-access-menu__copy">
+              <span className="composer-access-menu__title">{t("composer.taskModeNovel")}</span>
+              <span className="composer-access-menu__desc">{t("composer.taskModeNovelDesc")}</span>
+            </span>
+            {novelModeOn && <Check className="composer-intent-menu__check" size={16} aria-hidden="true" />}
           </button>
             {goalModeOn && activeGoal && (
             <div className="composer-intent-menu__goal-actions">

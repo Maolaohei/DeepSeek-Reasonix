@@ -1078,6 +1078,36 @@
       }
     },
     {
+      "name": "novel",
+      "description": "Manage a novel writing workspace (create, continue, or rewrite chapters). Operations: status (show last stable chapter and next step), init (scaffold a new book workspace), check (verify a chapter body against its recorded fingerprint), advance (record a chapter as stable after acceptance). Call status before writing, and advance only after the chapter body has been accepted.",
+      "parameters": {
+        "properties": {
+          "chapter": {
+            "description": "Chapter id like ch001 (required for check and advance)",
+            "type": "string"
+          },
+          "op": {
+            "description": "Operation to run",
+            "enum": [
+              "status",
+              "init",
+              "check",
+              "advance"
+            ],
+            "type": "string"
+          },
+          "title": {
+            "description": "Novel title / workspace name (required for init and check/advance with a named workspace; optional for status)",
+            "type": "string"
+          }
+        },
+        "required": [
+          "op"
+        ],
+        "type": "object"
+      }
+    },
+    {
       "name": "parallel_tasks",
       "description": "Dispatch multiple read-only sub-agent tasks concurrently. Blocks until all complete, then returns a bounded preview and a stable Subagent reference for every completed persisted child; use read_subagent_result to page through any full answer without combined-result truncation.",
       "parameters": {

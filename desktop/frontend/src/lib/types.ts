@@ -722,7 +722,7 @@ export interface Meta {
   canonicalTodos?: Todo[];
 }
 
-export type CollaborationMode = "normal" | "plan" | "goal";
+export type CollaborationMode = "normal" | "plan" | "goal" | "novel";
 export type ToolApprovalMode = "ask" | "auto" | "yolo";
 // "full" is the persisted compatibility value for the Balanced runtime profile.
 export type TokenMode = "full" | "economy" | "delivery";
@@ -793,7 +793,7 @@ export interface AutoResearchEvidenceView {
 }
 
 export function normalizeCollaborationMode(mode?: string, goal?: string, legacyMode?: Mode): CollaborationMode {
-  if (mode === "plan" || mode === "goal" || mode === "normal") return mode;
+  if (mode === "plan" || mode === "goal" || mode === "normal" || mode === "novel") return mode;
   if (legacyMode && modeHasPlan(legacyMode)) return "plan";
   if ((goal ?? "").trim()) return "goal";
   return "normal";

@@ -47,6 +47,9 @@ node_modules/
 /.reasonix/*
 !/.reasonix/commands/
 !/.reasonix/commands/review.md
+!/.reasonix/skills/
+!/.reasonix/skills/novel/
+!/.reasonix/skills/novel/SKILL.md
 
 # Stray Reasonix state written under a package dir by a test whose RealPath
 # resolves to CWD (e.g. remote bootstrap EnsureServe). Never commit these.

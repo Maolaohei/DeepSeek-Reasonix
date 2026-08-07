@@ -3,7 +3,7 @@
     "banner": 0,
     "commented-code": 0,
     "essay": 4151,
-    "file-size": 73885,
+    "file-size": 73888,
     "layering": 1,
     "marker": 0,
     "narrative": 66,
@@ -647,7 +647,7 @@
     },
     "internal/cli/cli.go": {
       "essay": 60,
-      "file-size": 2004
+      "file-size": 2007
     },
     "internal/cli/cli_test.go": {
       "essay": 9,

@@ -1941,6 +1941,15 @@ export default function App() {
         patchActiveComposerProfile({ collaborationMode: "normal", goalDraftMode: true, goal: "" }, ["collaborationMode", "goal"]);
         return setControllerCollaborationMode("normal");
       }
+      if (m === "novel") {
+        // Novel mode is a frontend collaboration flavor: the kernel runs as
+        // normal mode while the tab carries the "novel" marker so the composer
+        // shows the novel intent and the /novel skill drives the workflow.
+        userPlanModeByTabRef.current = updateUserPlanModeIntent(userPlanModeByTabRef.current, activeTabId, false);
+        if (goal.trim()) await clearControllerGoal();
+        patchActiveComposerProfile({ collaborationMode: "novel", goalDraftMode: false, goal: "" }, ["collaborationMode", "goal"]);
+        return setControllerCollaborationMode("normal");
+      }
       if (goal.trim()) await clearControllerGoal();
       await setControllerCollaborationMode(m);
       userPlanModeByTabRef.current = updateUserPlanModeIntent(userPlanModeByTabRef.current, activeTabId, m === "plan");

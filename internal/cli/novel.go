@@ -15,7 +15,7 @@ import (
 // the novel skill; this command provides the discipline.
 func novelCommand(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: reasonix novel <init|status|check|advance> [title] [chapter]")
+		fmt.Fprintln(os.Stderr, "usage: reasonix novel <init|status|check|advance|rollback|export> [title] [chapter]")
 		return 2
 	}
 	cmd, rest := args[0], args[1:]
@@ -68,11 +68,41 @@ func novelCommand(args []string) int {
 			return 1
 		}
 		rel := filepath.Join("chapters", rest[1], "draft.md")
-		if err := s.MarkStable(ws, rest[1], rel); err != nil {
+		n, err := s.MarkStable(ws, rest[1], rel)
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "novel advance: %v\n", err)
 			return 1
 		}
-		fmt.Fprintf(os.Stdout, "%s recorded as stable; %s\n", rest[1], s.NextAction)
+		fmt.Fprintf(os.Stdout, "%s recorded as stable（%d 字）；写 chapters/%s/summary.md（≤300 字：进展/关系变化/未解线索）后再写下一章。%s\n", rest[1], n, rest[1], s.NextAction)
+		return 0
+	case "rollback":
+		if len(rest) < 2 {
+			fmt.Fprintln(os.Stderr, "usage: reasonix novel rollback <title> <chapter>")
+			return 2
+		}
+		ws, s, err := loadNovel(rest[:1])
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "novel rollback: %v\n", err)
+			return 1
+		}
+		if err := s.Rollback(ws, rest[1]); err != nil {
+			fmt.Fprintf(os.Stderr, "novel rollback: %v\n", err)
+			return 1
+		}
+		fmt.Fprintf(os.Stdout, "%s 登记已撤销；%s\n", rest[1], s.NextAction)
+		return 0
+	case "export":
+		ws, _, err := loadNovel(rest)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "novel export: %v\n", err)
+			return 1
+		}
+		out, err := novel.Export(ws)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "novel export: %v\n", err)
+			return 1
+		}
+		fmt.Fprintf(os.Stdout, "exported to %s\n", out)
 		return 0
 	default:
 		fmt.Fprintf(os.Stderr, "unknown novel subcommand %q\n", cmd)

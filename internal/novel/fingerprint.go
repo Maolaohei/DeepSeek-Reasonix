@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // Fingerprint returns the SHA-256 of the chapter body file.
@@ -54,29 +56,82 @@ func (s *State) CheckStability(ws, chapterID string) (Stability, error) {
 	return Stable, nil
 }
 
+// minStableBodyRunes guards against advancing an effectively empty chapter:
+// an accepted chapter should carry a real body, not a placeholder.
+const minStableBodyRunes = 50
+
 // MarkStable records the chapter's current fingerprint as stable and advances
 // the workspace's next action. It is the mechanism-level "memory entry": call
-// it only after the chapter body has been accepted.
-func (s *State) MarkStable(ws, chapterID, relPath string) error {
+// it only after the chapter body has been accepted. The recorded rune count is
+// returned for the caller's progress reporting.
+func (s *State) MarkStable(ws, chapterID, relPath string) (int, error) {
 	if err := validateChapter(chapterID); err != nil {
-		return err
+		return 0, err
 	}
 	abs := filepath.Join(ws, relPath)
-	sum, err := Fingerprint(abs)
+	b, err := os.ReadFile(abs)
 	if err != nil {
-		return err
+		return 0, err
 	}
+	n := utf8.RuneCount(b)
+	if n < minStableBodyRunes {
+		return 0, fmt.Errorf("chapter body too short (%d runes < %d); write the full chapter before advance", n, minStableBodyRunes)
+	}
+	sum := sha256.Sum256(b)
 	if s.Chapters == nil {
 		s.Chapters = map[string]*Chapter{}
 	}
 	s.Chapters[chapterID] = &Chapter{
 		Path:   filepath.ToSlash(relPath),
-		SHA256: sum,
+		SHA256: hex.EncodeToString(sum[:]),
 		Status: "stable",
 	}
 	s.LastStableChapter = chapterID
 	s.NextAction = fmt.Sprintf("写 %s（%s 的下一章）", nextID(chapterID), chapterID)
+	if err := Save(ws, s); err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
+// Rollback forgets a chapter's stability record and points the next action
+// back at it, so a wrongly accepted chapter can be redone without hand-editing
+// the state file.
+func (s *State) Rollback(ws, chapterID string) error {
+	if err := validateChapter(chapterID); err != nil {
+		return err
+	}
+	if _, ok := s.Chapters[chapterID]; !ok {
+		return fmt.Errorf("chapter %s has no stability record to roll back", chapterID)
+	}
+	delete(s.Chapters, chapterID)
+	if s.LastStableChapter == chapterID {
+		s.LastStableChapter = lastStableID(s.Chapters)
+	}
+	s.NextAction = fmt.Sprintf("重新写并核对 %s（已撤销登记）", chapterID)
 	return Save(ws, s)
+}
+
+// lastStableID returns the highest-numbered recorded chapter, or "" when none.
+func lastStableID(chapters map[string]*Chapter) string {
+	best := ""
+	bestN := -1
+	for id := range chapters {
+		n, ok := chapterNum(id)
+		if !ok {
+			continue
+		}
+		if n > bestN {
+			best, bestN = id, n
+		}
+	}
+	return best
+}
+
+// chapterNum parses the numeric part of a chapter id.
+func chapterNum(id string) (int, bool) {
+	n, err := strconv.Atoi(strings.TrimPrefix(id, "ch"))
+	return n, err == nil && n >= 0
 }
 
 // MarkStale flags a chapter and its dependent assets as stale after the body

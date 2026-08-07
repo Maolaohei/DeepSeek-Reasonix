@@ -40,10 +40,10 @@ func TestInitScaffoldAndMarkStable(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(body), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(body, []byte("第一章正文"), 0o644); err != nil {
+	if err := os.WriteFile(body, []byte(strings.Repeat("第一章正文", 20)), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.MarkStable(ws, "ch001", filepath.Join("chapters", "ch001", "draft.md")); err != nil {
+	if _, err := s.MarkStable(ws, "ch001", filepath.Join("chapters", "ch001", "draft.md")); err != nil {
 		t.Fatalf("MarkStable: %v", err)
 	}
 	st, err := s.CheckStability(ws, "ch001")
@@ -61,8 +61,10 @@ func TestStaleDetectionOnUserEdit(t *testing.T) {
 	s, _ := Load(ws)
 	body := filepath.Join(ws, "chapters", "ch001", "draft.md")
 	os.MkdirAll(filepath.Dir(body), 0o755)
-	os.WriteFile(body, []byte("v1"), 0o644)
-	if err := s.MarkStable(ws, "ch001", filepath.Join("chapters", "ch001", "draft.md")); err != nil {
+	// Body must exceed the minimum accepted length (50 runes) to be recorded.
+	longBody := strings.Repeat("第一章正文", 20)
+	os.WriteFile(body, []byte(longBody), 0o644)
+	if _, err := s.MarkStable(ws, "ch001", filepath.Join("chapters", "ch001", "draft.md")); err != nil {
 		t.Fatal(err)
 	}
 	// User edits the body without going through MarkStable.
@@ -117,8 +119,8 @@ func TestUnrecordedAndBodyMissing(t *testing.T) {
 	// A recorded chapter whose body file is gone reports body_missing.
 	body := filepath.Join(ws, "chapters", "ch001", "draft.md")
 	os.MkdirAll(filepath.Dir(body), 0o755)
-	os.WriteFile(body, []byte("x"), 0o644)
-	if err := s.MarkStable(ws, "ch001", filepath.Join("chapters", "ch001", "draft.md")); err != nil {
+	os.WriteFile(body, []byte(strings.Repeat("正文", 30)), 0o644)
+	if _, err := s.MarkStable(ws, "ch001", filepath.Join("chapters", "ch001", "draft.md")); err != nil {
 		t.Fatal(err)
 	}
 	os.Remove(body)

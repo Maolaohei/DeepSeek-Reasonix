@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 	"time"
+	"unicode/utf8"
 )
 
 // scaffoldTemplates are the initial continuity assets of a new novel. They
@@ -142,6 +143,30 @@ func Status(ws string, s *State) string {
 		b = append(b, "尚未有稳定章节")
 	}
 	if len(s.Chapters) > 0 {
+		total, stableN := 0, 0
+		var rows []string
+		for id, ch := range s.Chapters {
+			if _, ok := chapterNum(id); !ok {
+				continue
+			}
+			body, err := os.ReadFile(filepath.Join(ws, filepath.FromSlash(ch.Path)))
+			runes := 0
+			if err == nil {
+				runes = utf8.RuneCount(body)
+			}
+			total += runes
+			if ch.Status == "stable" {
+				stableN++
+			}
+			sum := "✗"
+			if _, err := os.Stat(filepath.Join(ws, filepath.Dir(filepath.FromSlash(ch.Path)), "summary.md")); err == nil {
+				sum = "✓"
+			}
+			rows = append(rows, fmt.Sprintf("%s %s %d字 摘要%s", id, ch.Status, runes, sum))
+		}
+		sort.Strings(rows)
+		b = append(b, "章节：", join(rows))
+		b = append(b, fmt.Sprintf("进度：%d 章稳定 / %d 章登记 · 累计 %d 字", stableN, len(rows), total))
 		var stale []string
 		for id, ch := range s.Chapters {
 			if ch.Status == "stale" {

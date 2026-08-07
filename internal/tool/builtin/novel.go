@@ -34,9 +34,9 @@ func (novelTool) Schema() json.RawMessage {
 	return json.RawMessage(`{
 "type":"object",
 "properties":{
-  "op":{"type":"string","enum":["status","init","check","advance"],"description":"Operation to run"},
-  "title":{"type":"string","description":"Novel title / workspace name (required for init and check/advance with a named workspace; optional for status)"},
-  "chapter":{"type":"string","description":"Chapter id like ch001 (required for check and advance)"}
+  "op":{"type":"string","enum":["status","init","check","advance","rollback","export"],"description":"Operation to run"},
+  "title":{"type":"string","description":"Novel title / workspace name (required for init and check/advance/rollback with a named workspace; optional for status/export)"},
+  "chapter":{"type":"string","description":"Chapter id like ch001 (required for check, advance and rollback)"}
 },
 "required":["op"]
 }`)
@@ -54,7 +54,7 @@ func (t novelTool) Execute(ctx context.Context, args json.RawMessage) (string, e
 		return "", err
 	}
 	if in.Op == "" {
-		return "", fmt.Errorf("op is required: status, init, check, advance")
+		return "", fmt.Errorf("op is required: status, init, check, advance, rollback, export")
 	}
 	wd := t.workDir
 	if wd == "" {
@@ -113,10 +113,37 @@ func (t novelTool) Execute(ctx context.Context, args json.RawMessage) (string, e
 		if err != nil {
 			return "", err
 		}
-		if err := s.MarkStable(ws, in.Chapter, "chapters/"+in.Chapter+"/draft.md"); err != nil {
+		n, err := s.MarkStable(ws, in.Chapter, "chapters/"+in.Chapter+"/draft.md")
+		if err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("%s recorded as stable; %s", in.Chapter, s.NextAction), nil
+		return fmt.Sprintf("%s recorded as stable（%d 字）；写 chapters/%s/summary.md（≤300 字：进展/关系变化/未解线索）后再写下一章。%s", in.Chapter, n, in.Chapter, s.NextAction), nil
+	case "rollback":
+		if in.Chapter == "" {
+			return "", fmt.Errorf("chapter is required for rollback")
+		}
+		ws, err := novel.Locate(wd, in.Title)
+		if err != nil {
+			return "", err
+		}
+		s, err := novel.Load(ws)
+		if err != nil {
+			return "", err
+		}
+		if err := s.Rollback(ws, in.Chapter); err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("%s 登记已撤销；%s", in.Chapter, s.NextAction), nil
+	case "export":
+		ws, err := novel.Locate(wd, in.Title)
+		if err != nil {
+			return "", err
+		}
+		out, err := novel.Export(ws)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("exported to %s", out), nil
 	default:
 		return "", fmt.Errorf("unknown op %q", in.Op)
 	}

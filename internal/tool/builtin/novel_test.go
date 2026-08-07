@@ -43,7 +43,7 @@ func TestNovelToolLifecycle(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(body), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(body, []byte("第一章正文"), 0o644); err != nil {
+	if err := os.WriteFile(body, []byte(strings.Repeat("第一章正文", 20)), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	out = run(`{"op":"advance","title":"测试书","chapter":"ch001"}`)

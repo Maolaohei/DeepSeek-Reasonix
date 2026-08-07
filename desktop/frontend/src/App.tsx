@@ -1949,8 +1949,12 @@ export default function App() {
         if (goal.trim()) await clearControllerGoal();
         patchActiveComposerProfile({ collaborationMode: "novel", goalDraftMode: false, goal: "" }, ["collaborationMode", "goal"]);
         if (!activeTabId) return;
+        // Persist the marker through the profile axis (SetComposerProfileForTab
+        // also keeps the kernel on the normal mode axis). Do NOT follow with
+        // setControllerCollaborationMode("normal"): that would overwrite the
+        // marker with "normal" and novel would not survive a tab switch.
         await setControllerComposerProfileForTab(activeTabId, "novel", toolApprovalMode ?? "ask", "");
-        return setControllerCollaborationMode("normal");
+        return;
       }
       if (goal.trim()) await clearControllerGoal();
       await setControllerCollaborationMode(m);

@@ -428,5 +428,15 @@ eq(notReady.sends.length, 0, "delivery recovery waits for controller readiness")
 const noTab = await runContinueDelivery({ goal: undefined, tabId: null });
 eq(noTab.sends.length, 0, "delivery recovery without an active tab is a no-op");
 
+// Novel mode must persist its marker through the profile axis and never follow
+// with setControllerCollaborationMode("normal"), which would overwrite it and
+// make the mode collapse back to 常规 after a tab switch.
+eq(
+  appSource.includes('await setControllerComposerProfileForTab(activeTabId, "novel"') &&
+    appSource.includes("NOT follow with"),
+  true,
+  "novel mode persists its marker via the profile axis and never writes normal afterward",
+);
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

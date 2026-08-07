@@ -33,7 +33,7 @@ func annotateCommandNotFound(err error) error {
 		return err
 	}
 	if hint := availableToolsHint(); hint != "" {
-		return fmt.Errorf("%v\n\n%s", err, hint)
+		return fmt.Errorf("%w\n\n%s", err, hint)
 	}
 	return err
 }

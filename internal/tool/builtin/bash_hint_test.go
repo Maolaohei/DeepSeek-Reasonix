@@ -32,7 +32,7 @@ func TestAnnotateCommandNotFoundDetection(t *testing.T) {
 			t.Errorf("%q: want annotated error, got nil", text)
 		}
 		if !want && got != err && !(err == nil && got == nil) {
-			t.Errorf("%q: want passthrough, got %v", text, got)
+			t.Errorf("%q: want passthrough, got %+v", text, got)
 		}
 	}
 }

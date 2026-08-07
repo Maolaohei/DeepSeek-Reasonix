@@ -785,6 +785,49 @@ func TestRenderTranscriptRedactsToolCallArgs(t *testing.T) {
 	}
 }
 
+func TestRenderTranscriptIncludesReasoning(t *testing.T) {
+	// OpenAI's retained-reasoning finding: the compaction summarizer must see
+	// prior thinking so summaries preserve plans and insights.
+	short := "we tried ACTION2 then the grid shifted; the rule is row merging"
+	msgs := []provider.Message{
+		{Role: provider.RoleUser, Content: "solve the puzzle"},
+		{Role: provider.RoleAssistant, Content: "I'll analyze.", ReasoningContent: short},
+	}
+	out := renderTranscript(msgs)
+	if !strings.Contains(out, "[assistant reasoning]") || !strings.Contains(out, short) {
+		t.Fatalf("renderTranscript dropped assistant reasoning:\n%s", out)
+	}
+}
+
+func TestTruncateReasoningBoundsCost(t *testing.T) {
+	long := strings.Repeat("thinking about the grid layout and colors ", 200) + "FINAL_INSIGHT_XYZ"
+	trunc := truncateReasoning(long)
+	if len(trunc) > maxReasoningCharsPerMsg+64 {
+		t.Fatalf("truncateReasoning exceeded budget: %d chars (cap %d)", len(trunc), maxReasoningCharsPerMsg)
+	}
+	if !strings.Contains(trunc, "<truncated>") {
+		t.Fatalf("truncateReasoning missing elision marker:\n%.200s", trunc)
+	}
+	// Tail is retained so late insights survive.
+	if !strings.Contains(trunc, "FINAL_INSIGHT_XYZ") {
+		t.Fatalf("truncateReasoning dropped the tail:\n%.300s", trunc)
+	}
+	// Short reasoning passes through untouched.
+	if got := truncateReasoning("short"); got != "short" {
+		t.Fatalf("short reasoning mutated: %q", got)
+	}
+}
+
+func TestSummaryPromptDistillsReasoning(t *testing.T) {
+	// The summarizer LLM must be told to compress [assistant reasoning] blocks
+	// into durable headings — this is the LLM-compression contract.
+	for _, want := range []string{"[assistant reasoning]", "Distill their key insights", "Do not quote reasoning verbatim"} {
+		if !strings.Contains(summarySystemPrompt, want) {
+			t.Fatalf("summarySystemPrompt missing %q", want)
+		}
+	}
+}
+
 func TestInterruptedDisplayStaysVerbatimAndOutOfCompactionPrompt(t *testing.T) {
 	local := provider.Message{
 		Role: provider.RoleTool, ToolCallID: provider.LocalOnlyToolID, Name: provider.LocalOnlyToolName,

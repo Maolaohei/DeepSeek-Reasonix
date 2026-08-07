@@ -78,7 +78,9 @@ Problems hit and how they were resolved (or not), so the same dead ends are not 
 ## Pending & next step
 What is still in progress or unstarted, and the single most concrete next action to take.
 
-Rules: be terse — bullet points and fragments, not prose. Preserve identifiers, paths, and numbers exactly. Do NOT invent anything not present in the messages; if something is unknown, leave it out rather than guessing.`
+Rules: be terse — bullet points and fragments, not prose. Preserve identifiers, paths, and numbers exactly. Do NOT invent anything not present in the messages; if something is unknown, leave it out rather than guessing.
+
+The transcript includes "[assistant reasoning]" blocks — the model's prior private thinking. Distill their key insights into the headings above (Decisions & rationale, Errors & fixes, Pending & next step) as concrete fragments: plans, hypotheses tested, conclusions drawn, and dead ends avoided. Do not quote reasoning verbatim; compress it into durable, actionable notes the agent can resume from.`
 
 // compactThresholds returns the prompt-token boundaries maybeCompact switches
 // on. The compaction ablation arm collapses the snip and fold triggers onto
@@ -805,6 +807,13 @@ func renderTranscript(msgs []provider.Message) string {
 			if m.Content != "" {
 				fmt.Fprintf(&b, "[assistant]\n%s\n", m.Content)
 			}
+			if m.ReasoningContent != "" {
+				// Retain the model's prior thinking so the compaction summary can
+				// preserve plans/insights — OpenAI's "retained reasoning" finding
+				// (13.3%→38.3% on ARC-AGI-3). Truncated per message so the
+				// summarizer input budget stays bounded.
+				fmt.Fprintf(&b, "[assistant reasoning]\n%s\n", truncateReasoning(m.ReasoningContent))
+			}
 			for _, tc := range m.ToolCalls {
 				fmt.Fprintf(&b, "[assistant calls %s] %s\n", tc.Name, summarizeToolArgs(tc.Arguments))
 			}
@@ -816,6 +825,27 @@ func renderTranscript(msgs []provider.Message) string {
 		}
 	}
 	return b.String()
+}
+
+// maxReasoningCharsPerMsg bounds how much prior thinking rides into the
+// summarizer input per assistant message. Compression happens in the summarizer
+// LLM (see summarySystemPrompt), which distills reasoning into the durable
+// headings — so the per-message cap only guards against pathologically long
+// thinking blocks; typical blocks (up to ~2K tokens of thinking) pass through
+// intact. Reasoning never rides the main-loop calls, only the compaction pass.
+const maxReasoningCharsPerMsg = 8000
+
+// truncateReasoning keeps the head and tail of a reasoning block, joining them
+// with an elision marker — insights often land at the end of a thinking block.
+// Only reachable for blocks beyond maxReasoningCharsPerMsg.
+func truncateReasoning(reasoning string) string {
+	flat := strings.Join(strings.Fields(reasoning), " ")
+	if len(flat) <= maxReasoningCharsPerMsg {
+		return flat
+	}
+	head := flat[:maxReasoningCharsPerMsg*2/3]
+	tail := flat[len(flat)-maxReasoningCharsPerMsg/3:]
+	return head + " …<truncated>… " + tail
 }
 
 // summarizeToolArgs returns a short summary of tool-call arguments instead of

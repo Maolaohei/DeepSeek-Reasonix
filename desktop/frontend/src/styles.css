@@ -4972,6 +4972,10 @@ a[href] {
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
+.md--plain {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .md > :where(h1, h2, h3, h4, h5, h6, p, table, ul, ol, blockquote, hr, .code-block, .md-plain-block) {
   content-visibility: auto;
   contain-intrinsic-size: auto 72px;

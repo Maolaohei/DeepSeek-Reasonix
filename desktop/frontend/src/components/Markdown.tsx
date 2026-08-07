@@ -8,6 +8,20 @@ const MARKDOWN_SECTION_TARGET_CHARS = 12_000;
 const CROSS_SECTION_REFERENCE_RE = /(?:^ {0,3}\[[^\]\n]+\]:|\[\^[^\]\n]+\])/m;
 const CROSS_SECTION_CONTAINER_RE = /^ {0,3}(?:>|(?:[-+*]|\d{1,9}[.)])(?:[ \t]+|$)|<)/;
 
+// Plain-text fast path: messages with no markdown syntax skip the whole
+// react-markdown/micromark pipeline (tokenize + katex + nested DOM), which is
+// the dominant cost when a large historical session mounts. Detection is
+// deliberately conservative - a false negative only costs the fast path, a
+// false positive would render markdown literally.
+const MARKDOWN_SYNTAX_RE =
+  /(^|\n)[ \t]{0,3}(#{1,6}[ \t]|>[ \t]?|[-*+][ \t]|\d{1,9}[.)][ \t]|[|]|---|```|~~~)|(`{1,3})|(\*\*|__)|(~~)|(\[[^\]]*\]\([^)]*\))|(!\[[^\]]*\]\()|(<[a-zA-Z][^>]*>)/;
+
+export function isPlainMarkdown(text: string): boolean {
+  if (!text) return true;
+  if (text.length > 64 * 1024) return false;
+  return !MARKDOWN_SYNTAX_RE.test(text);
+}
+
 function scanMarkdownSections(text: string): { boundaries: number[]; hasCrossSectionContainer: boolean } {
   const boundaries = [0];
   let lineStart = 0;
@@ -260,7 +274,16 @@ export const Markdown = memo(function Markdown({
   streaming?: boolean;
 }) {
   const renderedText = useRenderedMarkdownText(text, streaming);
+  const plain = useMemo(
+    () => !streaming && isPlainMarkdown(renderedText),
+    [renderedText, streaming],
+  );
   const sections = useMemo(() => splitStableMarkdownSections(renderedText), [renderedText]);
+  if (plain) {
+    // Pre-wrap keeps the message's own line breaks; react-markdown would have
+    // collapsed them, so this is the more faithful rendering for raw text.
+    return <div className="md md--plain">{renderedText}</div>;
+  }
   const pendingText = text.length >= STREAMING_TAIL_THRESHOLD && text.startsWith(renderedText)
     ? text.slice(renderedText.length)
     : "";

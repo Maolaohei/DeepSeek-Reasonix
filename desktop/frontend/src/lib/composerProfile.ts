@@ -146,6 +146,12 @@ export function reconcileComposerProfile(current: ComposerProfile | undefined, b
     next.goalDraftMode = false;
   }
 
+  // novel is a pure frontend marker (the kernel runs normal underneath), so a
+  // backend hydrate that derives "normal" must not downgrade it back.
+  if (current.collaborationMode === "novel" && next.collaborationMode === "normal") {
+    next.collaborationMode = "novel";
+  }
+
   return next;
 }
 

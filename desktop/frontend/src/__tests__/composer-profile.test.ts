@@ -167,6 +167,36 @@ console.log("\ncomposer profile");
 }
 
 {
+  // Novel is a pure frontend marker (kernel runs normal): backend hydrates that
+  // derive "normal" must not downgrade it back, and leaving novel explicitly
+  // still works.
+  let profiles: ComposerProfilesByTab = {};
+  profiles = hydrateComposerProfilesFromTabs(profiles, [tab()]);
+  profiles = patchComposerProfile(
+    profiles,
+    "tab-1",
+    profiles["tab-1"],
+    { collaborationMode: "novel", goalDraftMode: false, goal: "" },
+    ["collaborationMode", "goal"],
+  );
+
+  profiles = hydrateComposerProfilesFromTabs(profiles, [tab()]);
+  eq(displayedComposerProfileCollaborationMode(profiles["tab-1"]), "novel", "stale tab hydration keeps novel mode");
+
+  profiles = hydrateComposerProfileFromMeta(profiles, "tab-1", meta({}));
+  eq(displayedComposerProfileCollaborationMode(profiles["tab-1"]), "novel", "meta hydrate deriving normal keeps novel mode");
+
+  profiles = patchComposerProfile(
+    profiles,
+    "tab-1",
+    profiles["tab-1"],
+    { collaborationMode: "normal", goalDraftMode: false, goal: "" },
+    ["collaborationMode", "goal"],
+  );
+  eq(displayedComposerProfileCollaborationMode(profiles["tab-1"]), "normal", "explicitly leaving novel works");
+}
+
+{
   let intents: UserPlanModeIntents = {};
   intents = updateUserPlanModeIntent(intents, "tab-1", true);
   intents = updateUserPlanModeIntent(intents, "tab-2", false);

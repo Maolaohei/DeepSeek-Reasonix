@@ -1948,6 +1948,8 @@ export default function App() {
         userPlanModeByTabRef.current = updateUserPlanModeIntent(userPlanModeByTabRef.current, activeTabId, false);
         if (goal.trim()) await clearControllerGoal();
         patchActiveComposerProfile({ collaborationMode: "novel", goalDraftMode: false, goal: "" }, ["collaborationMode", "goal"]);
+        if (!activeTabId) return;
+        await setControllerComposerProfileForTab(activeTabId, "novel", toolApprovalMode ?? "ask", "");
         return setControllerCollaborationMode("normal");
       }
       if (goal.trim()) await clearControllerGoal();
@@ -1955,7 +1957,7 @@ export default function App() {
       userPlanModeByTabRef.current = updateUserPlanModeIntent(userPlanModeByTabRef.current, activeTabId, m === "plan");
       patchActiveComposerProfile({ collaborationMode: m, goalDraftMode: false, goal: "" }, ["collaborationMode", "goal"]);
     },
-    [activeTabId, clearControllerGoal, goal, patchActiveComposerProfile, setControllerCollaborationMode],
+    [activeTabId, clearControllerGoal, goal, patchActiveComposerProfile, setControllerComposerProfileForTab, setControllerCollaborationMode, toolApprovalMode],
   );
   const applyToolApprovalMode = useCallback(
     (m: ToolApprovalMode) => {

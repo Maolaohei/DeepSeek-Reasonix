@@ -805,6 +805,7 @@ func (a *App) restoreOrBuildTabs() {
 			tab.effort = cloneStringPtr(entry.Effort)
 			tab.tokenMode = boot.NormalizeTokenMode(entry.TokenMode)
 			tab.mode = persistedTabMode(entry.Mode)
+			tab.collaborationMode = persistedTabCollaborationMode(entry.CollaborationMode)
 			// Validate the persisted goal against the session's goal-state
 			// sidecar: a typed /new or /clear rotates the session through the
 			// controller without passing App.NewSession/ClearSession, so
@@ -1971,6 +1972,8 @@ func normalizeCollaborationMode(mode string) string {
 		return "plan"
 	case "goal":
 		return "goal"
+	case "novel":
+		return "novel"
 	default:
 		return "normal"
 	}
@@ -2002,6 +2005,7 @@ func (a *App) SetComposerProfileForTab(tabID, collaborationMode, toolApprovalMod
 		return []string{}, fmt.Errorf("tab is no longer available")
 	}
 	tab.toolApprovalMode = toolApprovalMode
+	tab.collaborationMode = collaborationMode
 	if goal != "" {
 		tab.goal = goal
 		tab.mode = tabModeFromAxes(false, toolApprovalMode == control.ToolApprovalYolo)
@@ -2052,10 +2056,14 @@ func (a *App) SetCollaborationModeForTab(tabID, mode string) {
 		tab.goal = ""
 	case "goal":
 		tab.mode = tabModeFromAxes(false, approvalMode == control.ToolApprovalYolo)
+	case "novel":
+		tab.mode = tabModeFromAxes(false, approvalMode == control.ToolApprovalYolo)
+		tab.goal = ""
 	default:
 		tab.mode = tabModeFromAxes(false, approvalMode == control.ToolApprovalYolo)
 		tab.goal = ""
 	}
+	tab.collaborationMode = mode
 	ctrl := tab.Ctrl
 	goal := tab.goal
 	plan := tabModeHasPlan(tab.mode)
@@ -7193,6 +7201,9 @@ func (a *App) SetGoalForTab(tabID, goal string) error {
 	tab.goal = goal
 	if goal != "" {
 		tab.mode = tabModeFromAxes(false, approvalMode == control.ToolApprovalYolo)
+	} else if tab.collaborationMode == "goal" {
+		// A cleared goal must not re-surface as goal mode after a restart.
+		tab.collaborationMode = ""
 	}
 	ctrl := tab.Ctrl
 	plan := tabModeHasPlan(tab.mode)

@@ -224,6 +224,7 @@ type WorkspaceTab struct {
 	effort           *string
 	tokenMode        string
 	mode             string // "normal" | "plan" | "yolo" | "plan-yolo"; yolo/full access is runtime-only
+	collaborationMode string // user-selected collaboration flavor persisted across restarts ("" | "plan" | "goal" | "novel"); controller-facing axes live in mode/goal
 	goal             string
 	toolApprovalMode string
 	disabledMCP      map[string]ServerView
@@ -662,6 +663,7 @@ func cloneDetachedRuntimeTab(tab *WorkspaceTab, key, path string) *WorkspaceTab 
 		effort:              cloneStringPtr(tab.effort),
 		tokenMode:           tab.tokenMode,
 		mode:                tab.mode,
+		collaborationMode:   tab.collaborationMode,
 		goal:                tab.goal,
 		toolApprovalMode:    tab.toolApprovalMode,
 		disabledMCP:         cloneServerViewMap(tab.disabledMCP),
@@ -4883,6 +4885,7 @@ type desktopTabEntry struct {
 	Effort           *string `json:"effort,omitempty"`
 	TokenMode        string  `json:"tokenMode,omitempty"`
 	Mode             string  `json:"mode,omitempty"`
+	CollaborationMode string `json:"collaborationMode,omitempty"`
 	Goal             string  `json:"goal,omitempty"`
 	ToolApprovalMode string  `json:"toolApprovalMode,omitempty"`
 }
@@ -4946,6 +4949,7 @@ func (a *App) saveTabsCollectLocked() (string, []desktopTabEntry, string, uint64
 				Effort:           cloneStringPtr(tab.effort),
 				TokenMode:        persistedTabTokenMode(currentTabTokenMode(tab)),
 				Mode:             persistedTabMode(currentTabMode(tab)),
+				CollaborationMode: persistedTabCollaborationMode(currentTabCollaborationMode(tab)),
 				Goal:             persistedTabGoal(tab),
 				ToolApprovalMode: persistedToolApprovalMode(currentTabToolApprovalMode(tab)),
 			})
@@ -8411,11 +8415,18 @@ func currentTabCollaborationMode(tab *WorkspaceTab) string {
 	if tab == nil {
 		return "normal"
 	}
+	// Live controller state wins for plan/goal (a running goal overrides a
+	// persisted plan flavor). The persisted marker only supplies what the
+	// controller cannot express - novel is a frontend-only flavor, so it can
+	// only survive via this field.
 	if tabModeHasPlan(currentTabMode(tab)) {
 		return "plan"
 	}
 	if strings.TrimSpace(currentTabGoal(tab)) != "" && currentTabGoalStatus(tab) == control.GoalStatusRunning {
 		return "goal"
+	}
+	if tab.collaborationMode != "" {
+		return tab.collaborationMode
 	}
 	return "normal"
 }
@@ -8460,6 +8471,7 @@ type tabRuntimeSnapshot struct {
 	effort           *string
 	tokenMode        string
 	mode             string
+	persistedCollaborationMode string
 	goal             string
 	toolApprovalMode string
 }
@@ -8497,6 +8509,7 @@ func snapshotTabRuntimeLocked(tab *WorkspaceTab) tabRuntimeSnapshot {
 		effort:           cloneStringPtr(tab.effort),
 		tokenMode:        tab.tokenMode,
 		mode:             tab.mode,
+		persistedCollaborationMode: tab.collaborationMode,
 		goal:             tab.goal,
 		toolApprovalMode: tab.toolApprovalMode,
 	}
@@ -8544,6 +8557,9 @@ func (s tabRuntimeSnapshot) collaborationMode() string {
 	}
 	if strings.TrimSpace(s.currentGoal()) != "" && s.currentGoalStatus() == control.GoalStatusRunning {
 		return "goal"
+	}
+	if s.persistedCollaborationMode != "" {
+		return s.persistedCollaborationMode
 	}
 	return "normal"
 }
@@ -8646,6 +8662,17 @@ func persistedTabMode(mode string) string {
 	switch normalizeTabMode(mode) {
 	case "plan", "yolo", "plan-yolo":
 		return normalizeTabMode(mode)
+	}
+	return ""
+}
+
+// persistedTabCollaborationMode keeps the user-selected collaboration flavor
+// (plan/goal/novel) across restarts; "normal" is the default and stays empty so
+// legacy snapshots restore as normal.
+func persistedTabCollaborationMode(mode string) string {
+	switch normalizeCollaborationMode(mode) {
+	case "plan", "goal", "novel":
+		return normalizeCollaborationMode(mode)
 	}
 	return ""
 }

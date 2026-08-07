@@ -1,0 +1,71 @@
+# Build & Test gate for the Reasonix fork.
+#
+# Mirrors the local pre-push practice documented in REASONIX.md: gofmt, go vet,
+# go build, and the fast-fail package tests that catch the most common CI
+# failures first. Runs on every push (any branch — "every commit") and every
+# pull request, so feature branches get the same gate as main-v2.
+#
+# This workflow never publishes: no tags, no release artifacts, no package
+# upload. Upstream release-*.yml workflows are tag-triggered and are not part
+# of this gate.
+#
+# The upstream ci.yml remains the authoritative full matrix (3 OS, ./... test
+# sweep, golangci-lint); this one is the lightweight fork-native gate that
+# matches what a developer runs locally before pushing.
+name: Build & Test
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # Skipped on Windows: the runner checks out CRLF, so gofmt -l flags every
+      # file. gofmt output is OS-independent; the Ubuntu leg already covers it.
+      - name: gofmt
+        if: runner.os != 'Windows'
+        run: |
+          # Root module only — desktop/ is a separate module with its own tooling.
+          unformatted=$(gofmt -l . | grep -v '^desktop/' || true)
+          if [ -n "$unformatted" ]; then
+            echo "These files are not gofmt-clean:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: vet
+        run: go vet ./...
+
+      - name: build
+        run: go build ./...
+
+      # The fast-fail set from REASONIX.md plus the Continual Harness packages
+      # this fork owns. The cache guard runs here too: a prefix-shape
+      # regression silently tanks the prompt-cache hit rate the project is
+      # built around, so it gates every push, not just main-v2.
+      - name: test (local fast-fail packages)
+        env:
+          REASONIX_RELEASE_CACHE_GUARD: "1"
+          WINDOWS_SANDBOX_WAIT_MS: "20000"
+        run: go test -timeout=10m ./internal/tool/builtin/ ./internal/boot/ ./internal/refine/ ./internal/control/ ./internal/agent/ ./internal/config/

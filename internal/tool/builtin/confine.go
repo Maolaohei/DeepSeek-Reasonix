@@ -190,7 +190,10 @@ func realRoots(roots []string) []string {
 // confine reports an error when target resolves outside every root. An empty
 // roots slice is unconfined (returns nil) — the safe default for the built-in
 // templates before a run configures the workspace. The error text is written
-// for the model: it names the boundary and how the user can widen it.
+// for the model: it names the boundary and how the user can widen it. Roots
+// are re-resolved here (not only at bind time) so a root spelled with a
+// short-name alias or differing case confines against the same normalized
+// form the target's realPath resolves to.
 func confine(roots []string, target string) error {
 	if len(roots) == 0 {
 		return nil
@@ -199,7 +202,7 @@ func confine(roots []string, target string) error {
 	if err != nil {
 		return fmt.Errorf("resolve %s: %w", target, err)
 	}
-	for _, r := range roots {
+	for _, r := range realRoots(roots) {
 		if withinAllow(r, abs) {
 			return nil
 		}

@@ -274,7 +274,7 @@ func TestSaveNoteEnforcesLimit(t *testing.T) {
 	old := MaxPromptNotes
 	MaxPromptNotes = 2
 	defer func() { MaxPromptNotes = old }()
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		if _, err := store.SaveNote(PromptNote{ID: "note" + string(rune('a'+i)), Title: "N", Content: "c"}); err != nil {
 			t.Fatal(err)
 		}
@@ -392,7 +392,7 @@ func TestRefinementLogRoll(t *testing.T) {
 	old := MaxRefinementsLogBytes
 	MaxRefinementsLogBytes = 400
 	defer func() { MaxRefinementsLogBytes = old }()
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		ev := RefinementEvent{ID: "ev" + string(rune('a'+i)), Changes: []string{"x"}, CreatedAt: time.Now()}
 		if err := store.AppendRefinement(ev); err != nil {
 			t.Fatal(err)

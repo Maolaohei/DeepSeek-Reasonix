@@ -18,7 +18,7 @@ func TestReadFileLargeFileSizeHint(t *testing.T) {
 
 	big := filepath.Join(dir, "big.txt")
 	var sb strings.Builder
-	for i := 0; i < 3000; i++ {
+	for i := range 3000 {
 		sb.WriteString("this is line number " + itoa(i) + " with enough padding to exceed the hint threshold\n")
 	}
 	if err := os.WriteFile(big, []byte(sb.String()), 0o644); err != nil {

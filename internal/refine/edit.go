@@ -2,6 +2,7 @@ package refine
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 )
@@ -269,8 +270,7 @@ func slugFromTitle(title string) string {
 // proposal when nothing is rollable.
 func RollbackProposal(ev RefinementEvent) Proposal {
 	var edits []Edit
-	for i := len(ev.Applied) - 1; i >= 0; i-- {
-		applied := ev.Applied[i]
+	for _, applied := range slices.Backward(ev.Applied) {
 		if applied.Kind != "prompt" {
 			continue
 		}

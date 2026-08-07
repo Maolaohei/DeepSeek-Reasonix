@@ -59,7 +59,7 @@ func TestSerializeTrajectory(t *testing.T) {
 
 func TestSerializeTrajectoryTruncates(t *testing.T) {
 	var msgs []provider.Message
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		msgs = append(msgs, provider.Message{Role: provider.RoleUser, Content: strings.Repeat("x", 5000)})
 	}
 	text := serializeTrajectory(msgs, 10_000)

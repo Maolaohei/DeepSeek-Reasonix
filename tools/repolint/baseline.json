@@ -2,7 +2,7 @@
   "limits": {
     "banner": 0,
     "commented-code": 0,
-    "essay": 4144,
+    "essay": 4146,
     "file-size": 74108,
     "layering": 1,
     "marker": 0,
@@ -1605,7 +1605,7 @@
       "essay": 3
     },
     "internal/tool/builtin/confine.go": {
-      "essay": 18
+      "essay": 20
     },
     "internal/tool/builtin/encoding_helpers.go": {
       "essay": 1

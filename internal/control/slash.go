@@ -3,6 +3,7 @@ package control
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -102,10 +103,8 @@ func refineArgItems(prior []string) []SlashItem {
 			{Label: "instructions", Insert: "", Hint: "free-form guidance for the refinement"},
 		}
 	}
-	for _, p := range prior {
-		if p == "--rollback" {
-			return nil // id is free-form; no completion source yet
-		}
+	if slices.Contains(prior, "--rollback") {
+		return nil // id is free-form; no completion source yet
 	}
 	return nil
 }

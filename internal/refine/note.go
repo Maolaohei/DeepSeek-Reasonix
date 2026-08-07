@@ -196,17 +196,6 @@ func parsePositiveInt(value string) int {
 
 func (s Scope) String() string { return string(s) }
 
-// normalizeScope coerces an arbitrary string to a valid Scope, defaulting to
-// project.
-func normalizeScope(value string) Scope {
-	switch Scope(value) {
-	case ScopeGlobal:
-		return ScopeGlobal
-	default:
-		return ScopeProject
-	}
-}
-
 // errInvalidNoteID is returned by mutations that receive an unusable id.
 func errInvalidNoteID(id string) error {
 	return fmt.Errorf("invalid prompt note id %q", id)

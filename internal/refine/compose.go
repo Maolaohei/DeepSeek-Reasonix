@@ -69,7 +69,7 @@ func Compose(sysPrompt string, stores ...Store) string {
 	rendered := 0
 	for _, n := range notes {
 		if rendered >= maxPrefixNotes {
-			b.WriteString(fmt.Sprintf("- +%d more notes (see /refine overview)\n", len(notes)-rendered))
+			fmt.Fprintf(&b, "- +%d more notes (see /refine overview)\n", len(notes)-rendered)
 			break
 		}
 		title := oneLine(n.Title)

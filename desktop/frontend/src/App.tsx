@@ -5236,6 +5236,11 @@ export default function App() {
               turnWaitAccumMs={state.turnWaitAccumMs}
               promptWaitStartedAt={state.promptWaitStartedAt}
               turnTokens={state.turnTokens}
+              turnOutputTokens={state.turnOutputTokens}
+              turnOutputCharsAtUsage={state.turnOutputCharsAtUsage}
+              turnModelActiveAt={state.turnModelActiveAt}
+              turnModelActiveMs={state.turnModelActiveMs}
+              liveStore={liveStore}
               turnArgChars={state.turnArgChars}
               retry={state.retry}
               suspendedByDecision={Boolean(decisionSurface)}
@@ -5440,6 +5445,9 @@ export default function App() {
             sessionTurns={sessionTurns}
             sessionTokens={state.sessionTokens}
             turnTokens={state.turnTotalTokens}
+            lastTurnOutputTokens={state.lastTurnOutputTokens}
+            lastTurnModelMs={state.lastTurnModelMs}
+            lastTurnOutputEstimated={state.lastTurnOutputEstimated}
             turnCost={state.turnCost}
             cost={state.sessionCost}
             currency={state.sessionCurrency}

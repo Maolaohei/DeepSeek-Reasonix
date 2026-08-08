@@ -183,7 +183,6 @@ type WorkspaceTab struct {
 
 	ActivityStatus string // transient project-tree status for the in-flight turn
 
-	// Per-turn autosave per tab.
 	saveMu       sync.Mutex
 	saving       bool
 	saveAgain    bool
@@ -220,15 +219,16 @@ type WorkspaceTab struct {
 	displayStateMu sync.Mutex
 	displayState   *tabDisplayState
 
-	model            string // active model ref (for meta)
-	effort           *string
-	tokenMode        string
-	mode             string // "normal" | "plan" | "yolo" | "plan-yolo"; yolo/full access is runtime-only
+	model             string // active model ref (for meta)
+	effort            *string
+	tokenMode         string
+	mode              string // "normal" | "plan" | "yolo" | "plan-yolo"; yolo/full access is runtime-only
 	collaborationMode string // user-selected collaboration flavor persisted across restarts ("" | "plan" | "goal" | "novel"); controller-facing axes live in mode/goal
-	goal             string
-	toolApprovalMode string
-	disabledMCP      map[string]ServerView
-	mcpOrder         []string
+	goal              string
+	toolApprovalMode  string
+	disabledMCP       map[string]ServerView
+	mcpOrder          []string
+	lastBuildResult   *boot.BuildResult // incremental extension reload
 }
 
 const (
@@ -4875,19 +4875,19 @@ type desktopProjectFile struct {
 }
 
 type desktopTabEntry struct {
-	ID               string  `json:"id"`
-	Scope            string  `json:"scope"`
-	WorkspaceRoot    string  `json:"workspaceRoot"`
-	TopicID          string  `json:"topicId"`
-	SessionPath      string  `json:"sessionPath,omitempty"`
-	ReadOnly         bool    `json:"readOnly,omitempty"`
-	Model            string  `json:"model,omitempty"`
-	Effort           *string `json:"effort,omitempty"`
-	TokenMode        string  `json:"tokenMode,omitempty"`
-	Mode             string  `json:"mode,omitempty"`
-	CollaborationMode string `json:"collaborationMode,omitempty"`
-	Goal             string  `json:"goal,omitempty"`
-	ToolApprovalMode string  `json:"toolApprovalMode,omitempty"`
+	ID                string  `json:"id"`
+	Scope             string  `json:"scope"`
+	WorkspaceRoot     string  `json:"workspaceRoot"`
+	TopicID           string  `json:"topicId"`
+	SessionPath       string  `json:"sessionPath,omitempty"`
+	ReadOnly          bool    `json:"readOnly,omitempty"`
+	Model             string  `json:"model,omitempty"`
+	Effort            *string `json:"effort,omitempty"`
+	TokenMode         string  `json:"tokenMode,omitempty"`
+	Mode              string  `json:"mode,omitempty"`
+	CollaborationMode string  `json:"collaborationMode,omitempty"`
+	Goal              string  `json:"goal,omitempty"`
+	ToolApprovalMode  string  `json:"toolApprovalMode,omitempty"`
 }
 
 type desktopTabsFile struct {
@@ -4939,19 +4939,19 @@ func (a *App) saveTabsCollectLocked() (string, []desktopTabEntry, string, uint64
 	for _, id := range a.orderedTabIDsLocked() {
 		if tab := a.tabs[id]; tab != nil {
 			entries = append(entries, desktopTabEntry{
-				ID:               tab.ID,
-				Scope:            tab.Scope,
-				WorkspaceRoot:    tab.WorkspaceRoot,
-				TopicID:          tab.TopicID,
-				SessionPath:      tab.currentSessionPath(),
-				ReadOnly:         tab.ReadOnly,
-				Model:            tab.model,
-				Effort:           cloneStringPtr(tab.effort),
-				TokenMode:        persistedTabTokenMode(currentTabTokenMode(tab)),
-				Mode:             persistedTabMode(currentTabMode(tab)),
+				ID:                tab.ID,
+				Scope:             tab.Scope,
+				WorkspaceRoot:     tab.WorkspaceRoot,
+				TopicID:           tab.TopicID,
+				SessionPath:       tab.currentSessionPath(),
+				ReadOnly:          tab.ReadOnly,
+				Model:             tab.model,
+				Effort:            cloneStringPtr(tab.effort),
+				TokenMode:         persistedTabTokenMode(currentTabTokenMode(tab)),
+				Mode:              persistedTabMode(currentTabMode(tab)),
 				CollaborationMode: persistedTabCollaborationMode(currentTabCollaborationMode(tab)),
-				Goal:             persistedTabGoal(tab),
-				ToolApprovalMode: persistedToolApprovalMode(currentTabToolApprovalMode(tab)),
+				Goal:              persistedTabGoal(tab),
+				ToolApprovalMode:  persistedToolApprovalMode(currentTabToolApprovalMode(tab)),
 			})
 		}
 	}
@@ -8455,25 +8455,25 @@ func currentTabTokenMode(tab *WorkspaceTab) string {
 // fixed for #5955). Controller methods are invoked on the snapshot's ctrl
 // AFTER unlocking, never while holding a.mu.
 type tabRuntimeSnapshot struct {
-	ctrl             control.SessionAPI
-	sink             *tabEventSink
-	label            string
-	ready            bool
-	readOnly         bool
-	startupErr       string
-	scope            string
-	workspaceRoot    string
-	sessionPath      string
-	topicID          string
-	topicTitle       string
-	sharedHostKey    string
-	model            string
-	effort           *string
-	tokenMode        string
-	mode             string
+	ctrl                       control.SessionAPI
+	sink                       *tabEventSink
+	label                      string
+	ready                      bool
+	readOnly                   bool
+	startupErr                 string
+	scope                      string
+	workspaceRoot              string
+	sessionPath                string
+	topicID                    string
+	topicTitle                 string
+	sharedHostKey              string
+	model                      string
+	effort                     *string
+	tokenMode                  string
+	mode                       string
 	persistedCollaborationMode string
-	goal             string
-	toolApprovalMode string
+	goal                       string
+	toolApprovalMode           string
 }
 
 // normalizedTabRuntime is the internal, orthogonal runtime profile restored
@@ -8493,25 +8493,25 @@ func snapshotTabRuntimeLocked(tab *WorkspaceTab) tabRuntimeSnapshot {
 		return tabRuntimeSnapshot{}
 	}
 	return tabRuntimeSnapshot{
-		ctrl:             tab.Ctrl,
-		sink:             tab.sink,
-		label:            tab.Label,
-		ready:            tab.Ready,
-		readOnly:         tab.ReadOnly,
-		startupErr:       tab.StartupErr,
-		scope:            tab.Scope,
-		workspaceRoot:    tab.WorkspaceRoot,
-		sessionPath:      tab.SessionPath,
-		topicID:          tab.TopicID,
-		topicTitle:       tab.TopicTitle,
-		sharedHostKey:    tab.SharedHostKey,
-		model:            tab.model,
-		effort:           cloneStringPtr(tab.effort),
-		tokenMode:        tab.tokenMode,
-		mode:             tab.mode,
+		ctrl:                       tab.Ctrl,
+		sink:                       tab.sink,
+		label:                      tab.Label,
+		ready:                      tab.Ready,
+		readOnly:                   tab.ReadOnly,
+		startupErr:                 tab.StartupErr,
+		scope:                      tab.Scope,
+		workspaceRoot:              tab.WorkspaceRoot,
+		sessionPath:                tab.SessionPath,
+		topicID:                    tab.TopicID,
+		topicTitle:                 tab.TopicTitle,
+		sharedHostKey:              tab.SharedHostKey,
+		model:                      tab.model,
+		effort:                     cloneStringPtr(tab.effort),
+		tokenMode:                  tab.tokenMode,
+		mode:                       tab.mode,
 		persistedCollaborationMode: tab.collaborationMode,
-		goal:             tab.goal,
-		toolApprovalMode: tab.toolApprovalMode,
+		goal:                       tab.goal,
+		toolApprovalMode:           tab.toolApprovalMode,
 	}
 }
 

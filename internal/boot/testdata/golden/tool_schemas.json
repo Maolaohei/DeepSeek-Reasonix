@@ -1082,7 +1082,7 @@
     "Schema": {
       "properties": {
         "chapter": {
-          "description": "Chapter id like ch001 (required for check and advance)",
+          "description": "Chapter id like ch001 (required for check, advance and rollback)",
           "type": "string"
         },
         "op": {
@@ -1091,12 +1091,14 @@
             "status",
             "init",
             "check",
-            "advance"
+            "advance",
+            "rollback",
+            "export"
           ],
           "type": "string"
         },
         "title": {
-          "description": "Novel title / workspace name (required for init and check/advance with a named workspace; optional for status)",
+          "description": "Novel title / workspace name (required for init and check/advance/rollback with a named workspace; optional for status/export)",
           "type": "string"
         }
       },

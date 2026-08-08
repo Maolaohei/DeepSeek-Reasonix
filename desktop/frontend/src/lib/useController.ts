@@ -10,6 +10,8 @@ import { app, onEvent, onReady, onRuntimeRebuilt } from "./bridge";
 import { invalidateCache } from "./composerHistory";
 import { formatGuardianAssessmentNotice } from "./guardianEvents";
 import { createRafBatch } from "./rafBatch";
+import { applyLiveSegments, coalesceStreamDeltas, completeLiveReasoning, type StreamDeltaEntry, type StreamSegment } from "./streamDeltaBatch";
+import { uiPerfTracker } from "./uiPerf";
 import { t, type DictKey } from "./i18n";
 import { sameTodoList } from "./todoVisibility";
 import { fileDiffFromWire, summarize, summarizeFileDiff, type ToolFileDiff } from "./tools";
@@ -59,6 +61,7 @@ export const SUBAGENT_PROGRESS_NOTICE = "reasonix.subagent.notice";
 // Reserved names are matched by prefix so a future channel never falls back
 // to ordinary tool output on older frontends.
 const SUBAGENT_PROGRESS_PREFIX = "reasonix.subagent.";
+const TURN_ACTIVITY_KINDS = new Set(["turn_started", "text", "reasoning", "message", "tool_dispatch", "tool_progress", "tool_result"]);
 
 const SUBAGENT_PROGRESS_PHASES = new Set([
   "queued", "running", "reasoning", "responding", "tool", "retrying", "completed", "failed", "cancelled",
@@ -201,6 +204,7 @@ type StreamAttemptJournal = {
 export type ControllerLiveStore = {
   subscribe: (tabId: string | undefined, listener: () => void) => () => void;
   getSnapshot: (tabId: string | undefined) => LiveStream | undefined;
+  getModelActiveAt?: (tabId: string | undefined) => number | undefined;
 };
 export type MessageActionScope = "fork" | "summ-from" | "summ-upto" | "conversation" | "code" | "both";
 export type MessageActionState = { turn: number; scope: MessageActionScope };
@@ -366,10 +370,33 @@ interface State {
   deliveryRecoveryActive: boolean;
   discardTurn?: boolean;
   turnStartAt: number;
+  turnDoneAt: number;
+  // Completion tokens accumulated across executor usage events within the
+  // current turn. ReasoningTokens is a subset of CompletionTokens.
+  turnOutputTokens: number;
+  turnOutputChars: number;
+  // Live text/reasoning characters already covered by the accumulated usage.
+  // This lets the composer estimate only the in-flight provider request.
+  turnOutputCharsAtUsage: number;
+  // True when any output-token count in the current turn is estimated.
+  turnOutputEstimated: boolean;
+  // Active provider-output intervals for the current turn. Tool execution and
+  // gaps between provider requests are intentionally excluded from TPS.
+  turnModelActiveAt?: number;
+  turnModelActiveMs: number;
   // Time spent waiting on the user (approval/ask) within the current turn.
   // Closed intervals accumulate here; an open interval uses promptWaitStartedAt
   // so background tabs keep counting while not rendered by Composer.
   turnWaitAccumMs: number;
+  // Last completed turn's values — preserved across turn boundaries so the
+  // status bar can display the most recent completed turn's TPS and token
+  // counts until the current turn finishes and overwrites them.
+  lastTurnOutputTokens: number;
+  lastTurnStartAt: number;
+  lastTurnDoneAt: number;
+  lastTurnWaitAccumMs: number;
+  lastTurnModelMs: number;
+  lastTurnOutputEstimated: boolean;
   promptWaitStartedAt?: number;
   // promptEventClock() reading taken when the CURRENT pending prompt first
   // arrived. Orders the prompt against reconciliation snapshots so a snapshot
@@ -451,7 +478,19 @@ export const initialState: State = {
   deliveryRecoveryActive: false,
   promptEpoch: 0,
   turnStartAt: 0,
+  turnDoneAt: 0,
+  turnOutputTokens: 0,
+  turnOutputChars: 0,
+  turnOutputCharsAtUsage: 0,
+  turnOutputEstimated: false,
+  turnModelActiveMs: 0,
   turnWaitAccumMs: 0,
+  lastTurnOutputTokens: 0,
+  lastTurnStartAt: 0,
+  lastTurnDoneAt: 0,
+  lastTurnWaitAccumMs: 0,
+  lastTurnModelMs: 0,
+  lastTurnOutputEstimated: false,
   turnTokens: 0,
   turnTotalTokens: 0,
   turnCost: 0,
@@ -726,6 +765,7 @@ function compactArchivedToolItems(items: Item[]): Item[] {
 
 type Action =
   | { type: "event"; e: WireEvent }
+  | { type: "stream_batch"; segments: StreamSegment[] }
   | { type: "user"; text: string; submitText?: string; seq: number; deliveryRecovery?: boolean }
   | { type: "unsend" }
   | { type: "send_failed"; error: string }
@@ -978,15 +1018,24 @@ function liveReasoningDurationMs(live?: LiveStream): number | undefined {
   return completedAt - live.reasoningStartedAt;
 }
 
-function completeLiveReasoning(live: LiveStream, now = Date.now()): LiveStream {
-  if (!live.reasoning || live.reasoningCompletedAt) {
-    return { ...live, reasoningComplete: live.reasoning !== "" || live.reasoningComplete };
-  }
-  return {
-    ...live,
-    reasoningComplete: true,
-    reasoningCompletedAt: now,
-  };
+// applyDeltaSegments folds ordered stream segments into the assistant's live
+// stream in one state transition. Assumes applyEvent's preamble already ran.
+function applyDeltaSegments(s: State, segments: StreamSegment[]): State {
+  const { items, id, seq } = ensureAssistant(s);
+  const base = s.live?.id === id ? s.live : { id, text: "", reasoning: "", reasoningComplete: false };
+  const now = Date.now();
+  const deltaChars = segments.reduce((total, segment) => total + segment.delta.length, 0);
+  const next = { ...s, items, live: applyLiveSegments(base, segments, now), currentAssistant: id, seq, turnOutputChars: s.turnOutputChars + deltaChars };
+  return deltaChars > 0 ? beginTurnModelActivity(next, now) : next;
+}
+
+// applyStreamBatch is the stream_batch action: one frame's deltas, one reducer
+// pass, one notification. Mirrors applyEvent's preamble for delta events.
+function applyStreamBatch(s: State, segments: StreamSegment[]): State {
+  if (s.discardTurn) return s;
+  if (s.pendingUser !== undefined) s = flushPendingUser(s);
+  if (s.retry) s = { ...s, retry: undefined };
+  return applyDeltaSegments(s, segments);
 }
 
 /** Closed + open user-wait ms for the active turn (approval/ask). */
@@ -1031,15 +1080,56 @@ function endPromptWaitIfIdle(s: State, now = Date.now()): State {
   return endPromptWait(s, now);
 }
 
-function resetTurnTiming(now = Date.now()): Pick<State, "turnStartAt" | "turnWaitAccumMs" | "promptWaitStartedAt" | "turnTokens" | "turnTotalTokens" | "turnCost" | "turnArgChars"> {
+function resetTurnTiming(now = Date.now()): Pick<State, "turnStartAt" | "turnDoneAt" | "turnWaitAccumMs" | "promptWaitStartedAt" | "turnTokens" | "turnTotalTokens" | "turnOutputTokens" | "turnOutputChars" | "turnOutputCharsAtUsage" | "turnOutputEstimated" | "turnModelActiveAt" | "turnModelActiveMs" | "turnCost" | "turnArgChars"> {
   return {
     turnStartAt: now,
+    turnDoneAt: 0,
     turnWaitAccumMs: 0,
     promptWaitStartedAt: undefined,
     turnTokens: 0,
     turnTotalTokens: 0,
+    turnOutputTokens: 0,
+    turnOutputChars: 0,
+    turnOutputCharsAtUsage: 0,
+    turnOutputEstimated: false,
+    turnModelActiveAt: undefined,
+    turnModelActiveMs: 0,
     turnCost: 0,
     turnArgChars: 0,
+  };
+}
+
+function beginTurnModelActivity(s: State, now = Date.now()): State {
+  return s.turnModelActiveAt && s.turnModelActiveAt > 0
+    ? s
+    : { ...s, turnModelActiveAt: now };
+}
+
+function endTurnModelActivity(s: State, now = Date.now()): State {
+  if (!s.turnModelActiveAt || s.turnModelActiveAt <= 0) return s;
+  return {
+    ...s,
+    turnModelActiveAt: undefined,
+    turnModelActiveMs: Math.max(0, s.turnModelActiveMs) + Math.max(0, now - s.turnModelActiveAt),
+  };
+}
+
+function snapshotCompletedTurnTelemetry(s: State, now = Date.now()): State {
+  const settled = endTurnModelActivity(s, now);
+  const liveChars = (settled.live?.text.length ?? 0) + (settled.live?.reasoning.length ?? 0);
+  const inFlightChars = settled.turnOutputTokens > 0
+    ? Math.max(0, liveChars - settled.turnOutputCharsAtUsage) + settled.turnArgChars
+    : settled.turnOutputChars + settled.turnArgChars;
+  const estimatedInFlightTokens = Math.round(inFlightChars / 4);
+  return {
+    ...settled,
+    turnDoneAt: now,
+    lastTurnOutputTokens: settled.turnOutputTokens + estimatedInFlightTokens,
+    lastTurnStartAt: settled.turnStartAt,
+    lastTurnDoneAt: now,
+    lastTurnWaitAccumMs: settled.turnWaitAccumMs,
+    lastTurnModelMs: settled.turnModelActiveMs,
+    lastTurnOutputEstimated: settled.turnOutputEstimated || estimatedInFlightTokens > 0 || (settled.turnOutputTokens === 0 && settled.turnOutputChars > 0),
   };
 }
 
@@ -1142,8 +1232,9 @@ function applyStreamAttempt(s: State, e: WireEvent): State {
   if (!sa?.id || !sa.action) return s;
   switch (sa.action) {
     case "begin": {
-      // Snapshot only what this attempt may mutate: live text/reasoning and
-      // turnArgChars. Concurrent non-sampling events remain outside the journal.
+      // Snapshot only what this attempt may replace in the visible stream.
+      // Provider activity timing is closed at discard but remains accumulated so
+      // retry backoff is not counted in the completed TPS denominator.
       const baselineLive = s.live
         ? {
             id: s.live.id,
@@ -1192,7 +1283,7 @@ function applyStreamAttempt(s: State, e: WireEvent): State {
           ? { ...s.live, text: "", reasoning: "", reasoningComplete: false, reasoningStartedAt: undefined, reasoningCompletedAt: undefined }
           : undefined;
       return {
-        ...s,
+        ...endTurnModelActivity(s),
         items,
         live,
         turnArgChars: journal.baselineTurnArgChars,
@@ -1333,21 +1424,7 @@ function applyEvent(s: State, e: WireEvent): State {
     }
     case "text":
     case "reasoning": {
-      const { items, id, seq } = ensureAssistant(s);
-      const delta = e.text ?? e.reasoning ?? "";
-      const base = s.live?.id === id ? s.live : { id, text: "", reasoning: "", reasoningComplete: false };
-      const now = Date.now();
-      const live =
-        e.kind === "text"
-          ? { ...completeLiveReasoning(base, now), text: base.text + delta }
-          : {
-              ...base,
-              reasoning: base.reasoning + delta,
-              reasoningComplete: false,
-              reasoningStartedAt: base.reasoningStartedAt ?? (delta ? now : undefined),
-              reasoningCompletedAt: undefined,
-            };
-      return { ...s, items, live, currentAssistant: id, seq };
+      return applyDeltaSegments(s, [{ kind: e.kind, delta: e.text ?? e.reasoning ?? "" }]);
     }
     case "message": {
       const existingAssistant =
@@ -1361,13 +1438,16 @@ function applyEvent(s: State, e: WireEvent): State {
           existingAssistant && existingAssistant.text.trim() === "" && existingAssistant.reasoning.trim() === "" && !existingAssistant.memoryCitations?.length
             ? s.items.filter((it) => !(it.kind === "assistant" && it.id === existingAssistant.id))
             : s.items;
-        return { ...s, items, live: undefined, currentAssistant: undefined };
+        return { ...endTurnModelActivity(s), items, live: undefined, currentAssistant: undefined, turnOutputCharsAtUsage: 0 };
       }
-      const { items, id, seq } = ensureAssistant(s);
       const now = Date.now();
-      const completedLive = s.live?.id === id ? completeLiveReasoning({ ...s.live, text, reasoning }, now) : undefined;
+      const settled = endTurnModelActivity(s, now);
+      const { items, id, seq } = ensureAssistant(settled);
+      const streamedChars = settled.live?.id === id ? settled.live.text.length + settled.live.reasoning.length : 0;
+      const turnOutputChars = Math.max(0, settled.turnOutputChars - streamedChars + text.length + reasoning.length);
+      const completedLive = settled.live?.id === id ? completeLiveReasoning({ ...settled.live, text, reasoning }, now) : undefined;
       const reasoningDurationMs = liveReasoningDurationMs(completedLive);
-      const workDurationMs = currentTurnDurationMs(s, now);
+      const workDurationMs = currentTurnDurationMs(settled, now);
       const next = items.map((it) =>
         it.kind === "assistant" && it.id === id
           ? (() => {
@@ -1385,7 +1465,7 @@ function applyEvent(s: State, e: WireEvent): State {
             })()
           : it,
       );
-      return { ...s, items: next, live: undefined, currentAssistant: undefined, seq };
+      return { ...settled, items: next, live: undefined, currentAssistant: undefined, turnOutputChars, turnOutputCharsAtUsage: 0, seq };
     }
     case "tool_dispatch": {
       const t = e.tool;
@@ -1396,57 +1476,58 @@ function applyEvent(s: State, e: WireEvent): State {
       // zero visible activity, indistinguishable from a hang. The full
       // dispatch that follows merges by ID and fills in args/summary.
       if (t.partial) {
+        const activeState = t.parentId ? s : beginTurnModelActivity(s);
         const turnArgChars = t.argChars && t.argChars > 0 ? t.argChars : s.turnArgChars;
         // Some OpenAI-compatible streams surface the call name before its ID.
         // Without a stable ID the card could never be merged with the full
         // dispatch (a synthetic `tool${seq}` id would orphan it as a forever-
         // running duplicate), so count the progress but wait for the ID before
         // creating the card.
-        if (!t.id) return { ...s, turnArgChars };
+        if (!t.id) return { ...activeState, turnArgChars };
         const id = t.id;
-        const idx = s.items.findIndex((it) => it.kind === "tool" && it.id === id);
+        const idx = activeState.items.findIndex((it) => it.kind === "tool" && it.id === id);
         if (idx >= 0) {
-          const next = [...s.items];
+          const next = [...activeState.items];
           const it = next[idx];
           if (it.kind === "tool" && it.status === "running" && !it.args) {
             const prior = it;
             next[idx] = { ...it, argChars: t.argChars || it.argChars };
-            return noteToolInJournal({ ...s, items: next, turnArgChars }, id, true, prior, {
+            return noteToolInJournal({ ...activeState, items: next, turnArgChars }, id, true, prior, {
               attemptId: t.attemptId, parentId: t.parentId, partial: true,
             });
           }
-          return { ...s, turnArgChars };
+          return { ...activeState, turnArgChars };
         }
         return noteToolInJournal({
-          ...s,
+          ...activeState,
           turnArgChars,
-          seq: s.seq + 1,
-          items: [...s.items, { kind: "tool", id, name: t.name, args: "", readOnly: t.readOnly, resolvedName: t.resolvedName, capabilityId: t.capabilityId, status: "running", argChars: t.argChars || undefined, parentId: t.parentId, subagentProgress: SUBAGENT_PROGRESS_TOOLS.has(t.name) ? freshSubagentProgress() : undefined }],
+          seq: activeState.seq + 1,
+          items: [...activeState.items, { kind: "tool", id, name: t.name, args: "", readOnly: t.readOnly, resolvedName: t.resolvedName, capabilityId: t.capabilityId, status: "running", argChars: t.argChars || undefined, parentId: t.parentId, subagentProgress: SUBAGENT_PROGRESS_TOOLS.has(t.name) ? freshSubagentProgress() : undefined }],
         }, id, false, undefined, { attemptId: t.attemptId, parentId: t.parentId, partial: true });
       }
+      const settled = t.parentId ? s : endTurnModelActivity(s);
       const id = t.id || `tool${s.seq}`;
-      const idx = s.items.findIndex((it) => it.kind === "tool" && it.id === id);
+      const idx = settled.items.findIndex((it) => it.kind === "tool" && it.id === id);
       if (idx >= 0) {
-        const next = [...s.items];
+        const next = [...settled.items];
         const it = next[idx];
         if (it.kind === "tool") {
           const args = t.args ? t.args : it.args;
           const fileDiff = fileDiffFromWire(t);
           const summary = summarizeFileDiff(fileDiff) || summarize(t.name, args) || (t.name === it.name && args === it.args ? it.summary : undefined);
-          next[idx] = { ...it, name: t.name, args, readOnly: t.readOnly, resolvedName: t.resolvedName ?? it.resolvedName, capabilityId: t.capabilityId ?? it.capabilityId, profile: t.profile ?? it.profile, summary, fileDiff, argChars: undefined, subagentProgress: it.subagentProgress ?? (SUBAGENT_PROGRESS_TOOLS.has(t.name) ? freshSubagentProgress() : undefined) };
+          next[idx] = { ...it, name: t.name, args, readOnly: t.readOnly, resolvedName: t.resolvedName ?? it.resolvedName, capabilityId: t.capabilityId ?? it.capabilityId, profile: t.profile ?? it.profile, summary, fileDiff, argChars: undefined, isShell: it.isShell || t.name === "bash" || id.startsWith("shell-"), execution: t.execution ?? it.execution, subagentProgress: it.subagentProgress ?? (SUBAGENT_PROGRESS_TOOLS.has(t.name) ? freshSubagentProgress() : undefined) };
         }
         if (t.parentId) touchSubagentParent(next, t.parentId);
-        // Full dispatches are committed work — never journal them as speculative.
-        return { ...s, items: next };
+        return { ...settled, items: next };
       }
       const args = t.args ?? "";
       const fileDiff = fileDiffFromWire(t);
       const created: ToolItem = { kind: "tool", id, name: t.name, args, readOnly: t.readOnly, resolvedName: t.resolvedName, capabilityId: t.capabilityId, status: "running", summary: summarizeFileDiff(fileDiff) || summarize(t.name, args), fileDiff, isShell: t.name === "bash" || id.startsWith("shell-"), execution: t.execution, parentId: t.parentId, profile: t.profile, subagentProgress: SUBAGENT_PROGRESS_TOOLS.has(t.name) ? freshSubagentProgress() : undefined };
-      const items = [...s.items, created];
+      const items = [...settled.items, created];
       // A sub-agent call nested under a task card refreshes that card's
       // recent activity and switches its phase to "tool".
       if (t.parentId) touchSubagentParent(items, t.parentId);
-      return { ...s, seq: s.seq + 1, items };
+      return { ...settled, seq: settled.seq + 1, items };
     }
     case "tool_result": {
       const t = e.tool;
@@ -1530,29 +1611,42 @@ function applyEvent(s: State, e: WireEvent): State {
     case "usage": {
       if (!countsTowardCurrentTurn(s)) return s;
       const updateContextGauge = updatesContextGauge(e.usage);
+      // Only executor usage belongs to the foreground model stream. Planner,
+      // subagent, and auxiliary usage still contributes to session totals and
+      // usageSeq, but must not close or inflate the executor TPS interval.
+      const settled = updateContextGauge ? endTurnModelActivity(s) : s;
       // Prefer Context* (latest attempt) over billable aggregates when multi-
       // attempt sampling recovery folds several provider calls into one Usage.
       // Matches Controller.ContextSnapshot: latest prompt + completion.
-      let used = s.context.used;
-      if (e.usage && s.context.window && updateContextGauge) {
+      let used = settled.context.used;
+      if (e.usage && settled.context.window && updateContextGauge) {
         const hasContext =
           (e.usage.contextPromptTokens ?? 0) > 0 || (e.usage.contextCompletionTokens ?? 0) > 0;
         used = hasContext
           ? (e.usage.contextPromptTokens ?? 0) + (e.usage.contextCompletionTokens ?? 0)
           : (e.usage.promptTokens ?? 0) + (e.usage.completionTokens ?? 0);
       }
-      const turnTokens = s.turnTokens + (e.usage?.completionTokens ?? 0);
+      const turnTokens = settled.turnTokens + (e.usage?.completionTokens ?? 0);
+      const turnOutputTokens = updateContextGauge
+        ? settled.turnOutputTokens + (e.usage?.completionTokens ?? 0)
+        : settled.turnOutputTokens;
+      const turnOutputCharsAtUsage = updateContextGauge
+        ? (settled.live?.text.length ?? 0) + (settled.live?.reasoning.length ?? 0)
+        : settled.turnOutputCharsAtUsage;
+      const turnOutputEstimated = updateContextGauge
+        ? settled.turnOutputEstimated || Boolean(e.usage?.estimated)
+        : settled.turnOutputEstimated;
       const usageTokens = usageTotalTokens(e.usage);
-      const turnTotalTokens = s.turnTotalTokens + usageTokens;
-      const sessionTokens = s.sessionTokens + usageTokens;
+      const turnTotalTokens = settled.turnTotalTokens + usageTokens;
+      const sessionTokens = settled.sessionTokens + usageTokens;
       const usageCost = e.usage?.cost ?? e.usage?.costUsd ?? 0;
-      const turnCost = s.turnCost + usageCost;
-      const sessionCost = s.sessionCost + usageCost;
-      const sessionCurrency = e.usage?.currency || s.sessionCurrency || "¥";
-      const usage = updateContextGauge ? e.usage : s.usage;
+      const turnCost = settled.turnCost + usageCost;
+      const sessionCost = settled.sessionCost + usageCost;
+      const sessionCurrency = e.usage?.currency || settled.sessionCurrency || "¥";
+      const usage = updateContextGauge ? e.usage : settled.usage;
       // The completed round's usage now accounts for the streamed tool-call
       // arguments, so drop the live estimate rather than double-count it.
-      return { ...s, usage, context: { ...s.context, used, sessionTokens }, turnTokens, turnTotalTokens, turnCost, turnArgChars: 0, sessionTokens, sessionCost, sessionCurrency, usageSeq: s.usageSeq + 1 };
+      return { ...settled, usage, context: { ...settled.context, used, sessionTokens }, turnTokens, turnOutputTokens, turnOutputCharsAtUsage, turnOutputEstimated, turnTotalTokens, turnCost, turnArgChars: updateContextGauge ? 0 : settled.turnArgChars, sessionTokens, sessionCost, sessionCurrency, usageSeq: settled.usageSeq + 1 };
     }
     case "notice":
       return appendNoticeToState(s, e.level ?? "info", e.text ?? "", e.detail, e.code, e.decisionReceipt);
@@ -1616,6 +1710,7 @@ function applyEvent(s: State, e: WireEvent): State {
     case "turn_done": {
       if (s.pendingUser !== undefined) s = flushPendingUser(s);
       const now = Date.now();
+      s = snapshotCompletedTurnTelemetry(s, now);
       const workDurationMs = currentTurnDurationMs(s, now);
       let lastUserIndex = -1;
       let lastAssistantIndex = -1;
@@ -1808,14 +1903,15 @@ export function reducer(s: State, a: Action): State {
           turnStartAt: s.turnStartAt || Date.now(),
         };
       }
-      const finalized = s.items.map((it) => {
-        if (it.kind === "assistant" && s.live && it.id === s.live.id) return { ...it, text: s.live.text, reasoning: s.live.reasoning, streaming: false };
+      const telemetry = snapshotCompletedTurnTelemetry(s);
+      const finalized = telemetry.items.map((it) => {
+        if (it.kind === "assistant" && telemetry.live && it.id === telemetry.live.id) return { ...it, text: telemetry.live.text, reasoning: telemetry.live.reasoning, streaming: false };
         if (it.kind === "assistant" && it.streaming) return { ...it, streaming: false };
         if (it.kind === "tool" && it.status === "running") return { ...it, status: "stopped" as const };
         return it;
       });
       return endPromptWait({
-        ...s,
+        ...telemetry,
         items: finalized,
         running: false,
         turnActive: false,
@@ -1973,6 +2069,7 @@ export function reducer(s: State, a: Action): State {
     case "reset": return { ...initialState, meta: metaWithoutCanonicalTodos(s.meta), context: { used: 0, window: s.context.window, sessionTokens: 0, compactRatio: s.context.compactRatio }, balance: s.balance, effort: s.effort, jobs: s.jobs, hydrating: s.hydrating, hydrateReason: s.hydrateReason, hydrateError: s.hydrateError, hydrateHistoryLoaded: s.hydrateHistoryLoaded, hydratePlaceholderItems: s.hydratePlaceholderItems, backendActivationPending: s.backendActivationPending, sessionGen: s.sessionGen + 1, promptEpoch: s.promptEpoch + 1 };
     case "context_panel_refresh": return { ...s, contextPanelSeq: s.contextPanelSeq + 1 };
     case "event": return applyEvent(s, a.e);
+    case "stream_batch": return applyStreamBatch(s, a.segments);
     default: return s;
   }
 }
@@ -2418,6 +2515,9 @@ export function useController() {
     getSnapshot(tabId) {
       return tabId ? statesRef.current.get(tabId)?.live : undefined;
     },
+    getModelActiveAt(tabId) {
+      return tabId ? statesRef.current.get(tabId)?.turnModelActiveAt : undefined;
+    },
   }), []);
   const beginActiveNavigation = useCallback(() => {
     activeNavigationSeqRef.current += 1;
@@ -2450,14 +2550,19 @@ export function useController() {
     const next = reducer(prev, action);
     if (prev !== next) {
       states.set(tabId, next);
+      uiPerfTracker.onStateCommit();
       notifyLiveListeners(tabId);
       const streamDeltaOnly =
-        action.type === "event" &&
-        (action.e.kind === "text" || action.e.kind === "reasoning") &&
+        (action.type === "stream_batch" ||
+          (action.type === "event" && (action.e.kind === "text" || action.e.kind === "reasoning"))) &&
         prev.items === next.items &&
         prev.currentAssistant === next.currentAssistant &&
         prev.pendingUser === next.pendingUser &&
         prev.retry === next.retry;
+      // Text/reasoning-only deltas only update the live stream — which the
+      // frontend reads through its own subscription — so they must not bump the
+      // full controller tree (the run-strip TPS estimate subscribes to the live
+      // stream directly and updates itself).
       if (!streamDeltaOnly) bump();
     }
   }, [bump, notifyLiveListeners]);
@@ -2921,8 +3026,9 @@ export function useController() {
   }, [clearCancelReconcileTimer, reconcileTabRuntime]);
 
   useEffect(() => {
-    const textBatch = createRafBatch<{ tabId: string; e: WireEvent }>((batch) => {
-      for (const { tabId, e } of batch) dispatchTo(tabId, { type: "event", e });
+    const textBatch = createRafBatch<StreamDeltaEntry>((batch) => {
+      uiPerfTracker.onStreamDispatch();
+      for (const b of coalesceStreamDeltas(batch)) dispatchTo(b.tabId, { type: "stream_batch", segments: b.segments });
     });
     const off = onEvent((e) => {
       // Untagged compatibility events belong to the tab that the backend has
@@ -2936,17 +3042,8 @@ export function useController() {
         if (!acceptsRuntimeEventEpoch(acceptedEpoch, e.runtimeEpoch)) return;
         if (!acceptedEpoch) runtimeEpochByTabRef.current.set(targetTabId, e.runtimeEpoch);
       }
-      if (
-        e.kind === "turn_started" ||
-        e.kind === "text" ||
-        e.kind === "reasoning" ||
-        e.kind === "message" ||
-        e.kind === "tool_dispatch" ||
-        e.kind === "tool_progress" ||
-        e.kind === "tool_result"
-      ) {
-        lastTurnActivityAtByTab.current.set(targetTabId, Date.now());
-      }
+      uiPerfTracker.onWireEvent(targetTabId, e.kind);
+      if (TURN_ACTIVITY_KINDS.has(e.kind)) lastTurnActivityAtByTab.current.set(targetTabId, Date.now());
       if (e.kind === "text" || e.kind === "reasoning") {
         textBatch.push({ tabId: targetTabId, e });
       } else {

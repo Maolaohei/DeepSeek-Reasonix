@@ -63,6 +63,63 @@ func TestEditFileFuzzyReadFileLinePrefixes(t *testing.T) {
 	}
 }
 
+// TestEditFileFuzzyUnicodeLookalikes proves typographic quotes, dashes, and
+// non-breaking spaces copied from a word processor or web page still match
+// the plain ASCII text in the file.
+func TestEditFileFuzzyUnicodeLookalikes(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "notes.txt")
+	seed := "hello \"world\" - done\nkeep this line\n"
+	if err := os.WriteFile(path, []byte(seed), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := (editFile{}).Execute(context.Background(), argsJSON(t, map[string]any{
+		"path":       path,
+		"old_string": "hello \u201Cworld\u201D \u2014 done",
+		"new_string": "replaced",
+	}))
+	if err != nil {
+		t.Fatalf("edit_file: %v", err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "replaced\nkeep this line\n"
+	if string(got) != want {
+		t.Fatalf("content = %q, want %q", got, want)
+	}
+}
+
+// TestEditFileFuzzyNonBreakingSpace proves NBSP inside a line is treated as a
+// plain space when matching.
+func TestEditFileFuzzyNonBreakingSpace(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "notes.txt")
+	seed := "a b\n"
+	if err := os.WriteFile(path, []byte(seed), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := (editFile{}).Execute(context.Background(), argsJSON(t, map[string]any{
+		"path":       path,
+		"old_string": "a\u00A0b",
+		"new_string": "ab",
+	}))
+	if err != nil {
+		t.Fatalf("edit_file: %v", err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "ab\n"
+	if string(got) != want {
+		t.Fatalf("content = %q, want %q", got, want)
+	}
+}
+
 func TestEditFileFuzzyCRLFPreservesLineEndings(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "win.txt")

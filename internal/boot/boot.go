@@ -1222,6 +1222,7 @@ func build(ctx context.Context, opts Options) (*BuildResult, error) {
 		addDocsTool()
 		addSessionTools()
 		addMemoryTools()
+		registerPeerTools(reg, root, sessionID)
 	}
 
 	// The `ask` tool puts structured multiple-choice questions to the user. It
@@ -2087,13 +2088,12 @@ func build(ctx context.Context, opts Options) (*BuildResult, error) {
 	ctrlOpts.HarnessEnabled = cfg.HarnessEnabled()
 	ctrlOpts.ToolEconomy = tokenEconomy
 	ctrl := control.New(ctrlOpts)
-	// Publish the controller to the extension UI hub's indirection: from here
-	// on, host/ui/* publishes ride ctrl.EmitExtensionEvent and blocking prompts
-	// ride ctrl.Ask, exactly as if the hub had been built after control.New.
+	startPeerSessionForBuild(ctx, opts, tokenEconomy, root, sessionID, ctrl)
+	// Publish the controller to the extension UI hub's indirection: host/ui/*
+	// publishes ride ctrl.EmitExtensionEvent and prompts ride ctrl.Ask.
 	ctrlRef.Store(ctrl)
 	close(controllerReady)
-	// Share the recovery checkpoint with task/fleet sub-agents so background
-	// writers observe the same failure state as the root agent.
+	// Share the recovery checkpoint with task/fleet sub-agents (same failure state).
 	if taskTool != nil {
 		if g := ctrl.Executor(); g != nil {
 			taskTool.WithRecoveryGate(g.RecoveryGate())

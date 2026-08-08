@@ -740,9 +740,8 @@ func requestToolDescriptionContains(req provider.Request, name, want string) boo
 }
 
 // TestBuildRunSkillSubagentRegistryHonorsReadOnlyFlag proves the registry split
-// for user-defined subagent skills: a plain skill keeps writer tools and the
-// foreground-only bash, while a `read-only: true` skill is stripped to research
-// tools plus the permission-classified read-only bash wrapper.
+// for user-defined subagent skills: a plain skill keeps writer tools, while a
+// `read-only: true` skill is stripped to research tools plus read-only bash.
 func TestBuildRunSkillSubagentRegistryHonorsReadOnlyFlag(t *testing.T) {
 	isolateConfigHome(t)
 	dir := robustTempDir(t)
@@ -930,9 +929,8 @@ func subagentRefFromHistory(t *testing.T, msgs []provider.Message) string {
 }
 
 // TestBuildHeadlessRunRunsTaskSubagentWithoutSessionPath reproduces headless
-// `reasonix run`: a controller built via Build with NO SetSessionPath (exactly
-// what internal/cli.runAgent does) must still be able to run a `task` sub-agent.
-// Before the ephemeral fallback this failed with "parent session is required".
+// `reasonix run`: a controller built via Build with NO SetSessionPath (what
+// internal/cli.runAgent does) must still run a `task` sub-agent.
 func TestBuildHeadlessRunRunsTaskSubagentWithoutSessionPath(t *testing.T) {
 	isolateConfigHome(t)
 	dir := robustTempDir(t)
@@ -2197,6 +2195,7 @@ func defaultFullBootToolNames() []string {
 		"install_skill",
 		"install_source",
 		"kill_shell",
+		"list_peers",
 		"list_sessions",
 		"ls",
 		"lsp_definition",
@@ -2204,6 +2203,7 @@ func defaultFullBootToolNames() []string {
 		"lsp_hover",
 		"lsp_references",
 		"memory",
+		"message_peer",
 		"move_file",
 		"multi_edit",
 		"notebook_edit",

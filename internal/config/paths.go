@@ -150,6 +150,10 @@ func userSupportDir() string {
 	return reasonixHomeDir()
 }
 
+// SupportDir returns the state root for cross-session artifacts (peer
+// mailboxes, presence records), preferring REASONIX_STATE_HOME.
+func SupportDir() string { return userSupportDir() }
+
 func legacyOSSupportDir() string {
 	if IsolatedHomeDir() != "" {
 		return ""

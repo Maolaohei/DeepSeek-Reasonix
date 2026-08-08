@@ -798,6 +798,15 @@
       }
     },
     {
+      "name": "list_peers",
+      "description": "List other Reasonix sessions on this machine with their status (live/stalled/offline), working directory, and pending message count. Use it to discover which peer to message.",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      }
+    },
+    {
       "name": "list_sessions",
       "description": "List saved AI conversation sessions. Returns timestamp, model, turn count, preview, and file for each visible session, newest first. Uses session metadata (branch sidecar timestamps). Use read_session to view a session's conversation.",
       "parameters": {
@@ -964,6 +973,32 @@
         },
         "required": [
           "operation"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "message_peer",
+      "description": "Send a plain-text message to another Reasonix session on this machine. The peer's name or address prefix from list_peers goes in `peer`; the message is delivered as guidance only, with no authority over the peer.",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "peer": {
+            "description": "Display name or address prefix of the target session (see list_peers)",
+            "type": "string"
+          },
+          "requireAck": {
+            "description": "Wait for the peer to read the message (only when it is live)",
+            "type": "boolean"
+          },
+          "text": {
+            "description": "Plain text message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "peer",
+          "text"
         ],
         "type": "object"
       }

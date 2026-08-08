@@ -24,12 +24,13 @@ type runLoopState struct {
 	runMaxStepsKey    string
 	runLimitHostOwned bool
 
-	emptyFinalBlocks   int
-	handoffNudges      int
-	usedAnyTool        bool
-	goalToolRepairs    int
-	graceRound         bool
-	recoveryGraceRound bool
+	emptyFinalBlocks       int
+	handoffNudges          int
+	usedAnyTool            bool
+	goalToolRepairs        int
+	overflowCompactionDone bool
+	graceRound             bool
+	recoveryGraceRound     bool
 
 	todoProgress         int
 	trackingTodoProgress bool
@@ -361,6 +362,11 @@ func (a *Agent) runToolLoop(ctx context.Context, state *runLoopState) error {
 			a.emitTurnUsage(usage, &cacheDiagnostics)
 			if msg, ok := finishReasonMessage(usage); ok {
 				a.sink.Emit(event.Event{Kind: event.Notice, Level: event.LevelWarn, Text: msg})
+			}
+			// Context overflow is recoverable: compact once and retry the
+			// same turn instead of failing (bounded by overflowCompactionDone).
+			if a.overflowRecover(ctx, state, err) {
+				continue
 			}
 			// Exhausted stream retries (or a non-retryable error): persist one
 			// bounded LocalOnly recovery record for the next real user message.
@@ -966,33 +972,19 @@ func (a *Agent) handleToolRound(ctx context.Context, state *runLoopState, step i
 	// calls are not executed; return a typed pause so the host can surface
 	// recovery_paused without treating it as a send failure.
 	if state.recoveryGraceRound {
-		reason := ""
-		if ctrl := a.recoveryEpisodeControl(); ctrl != nil {
-			_, _ = ctrl.ConsumeFinalization(a.recoveryTaskID)
-		}
-		// Pair tool-call / tool-result without executing.
-		msg := "blocked: Auto recovery already paused this turn. Do not call tools; the user will continue in the next message."
-		for _, call := range calls {
-			a.session.Add(provider.Message{
-				Role:       provider.RoleTool,
-				Content:    msg,
-				ToolCallID: call.ID,
-				Name:       call.Name,
-			})
-		}
-		a.maybeCompact(ctx, usage)
-		return false, &RecoveryPauseError{
-			Message:    "Automatic retries paused. Reasonix stopped repeated attempts and kept completed work. Send \"continue\" to start a fresh attempt, or add instructions to change direction.",
-			StopReason: reason,
-		}
+		return a.pauseRecoveryRound(ctx, state, calls, usage)
 	}
 
 	receiptMark := 0
 	if a.evidence != nil {
 		receiptMark = a.evidence.Len()
 	}
-	batch := a.executeBatch(ctx, calls)
+	execCalls, rejected := splitLengthTruncatedCalls(calls, usage)
+	batch := a.executeBatch(ctx, execCalls)
 	results, images := batch.results, batch.images
+	if len(rejected) > 0 {
+		results, images, batch.executions = mergeRejectedToolResults(calls, batch, rejected)
+	}
 	for i, call := range calls {
 		msg := provider.Message{
 			Role:       provider.RoleTool,

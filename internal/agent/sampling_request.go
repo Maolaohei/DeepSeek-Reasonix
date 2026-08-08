@@ -14,6 +14,31 @@ type samplingRequest struct {
 	req provider.Request
 }
 
+// maxTokensSafetyTokens keeps output inside the window with headroom; a
+// near-full context must not push the request over the provider limit.
+const maxTokensSafetyTokens = 4096
+
+// minAnswerTokens is the floor below which clamping gives up and leaves the
+// output budget untouched: with no room to answer, provider-side truncation
+// and the truncated-tool-call guard handle the turn instead.
+const minAnswerTokens = 1024
+
+// clampMaxTokensToContext caps MaxTokens at the window minus the estimated
+// input and a safety margin. A zero MaxTokens (inherit provider default) is
+// left untouched: clamping it to the headroom could amplify a small inherited
+// budget beyond the provider's output cap. A saturated window (< minAnswerTokens
+// headroom) is also left alone.
+func clampMaxTokensToContext(maxTokens, contextWindow, inputTokens int) int {
+	if maxTokens <= 0 || contextWindow <= 0 || inputTokens >= contextWindow-maxTokensSafetyTokens-minAnswerTokens {
+		return maxTokens
+	}
+	avail := contextWindow - inputTokens - maxTokensSafetyTokens
+	if avail >= maxTokens {
+		return maxTokens
+	}
+	return avail
+}
+
 // prepareSamplingRequest freezes one model-round request (preflight + interceptors).
 func (a *Agent) prepareSamplingRequest(ctx context.Context) (samplingRequest, error) {
 	// CreatedAt is durable UI metadata, not model input. Strip it from the
@@ -46,6 +71,11 @@ func (a *Agent) prepareSamplingRequest(ctx context.Context) (samplingRequest, er
 	req, err = a.interceptProviderRequest(ctx, req)
 	if err != nil {
 		return samplingRequest{}, err
+	}
+	// Cap the output budget to the window headroom so a near-full context
+	// cannot push the request over the provider limit (or truncate mid-tool).
+	if a.contextWindow > 0 {
+		req.MaxTokens = clampMaxTokensToContext(req.MaxTokens, a.contextWindow, estimateSamplingRequestInputTokens(req))
 	}
 	return samplingRequest{req: freezeProviderRequest(req)}, nil
 }

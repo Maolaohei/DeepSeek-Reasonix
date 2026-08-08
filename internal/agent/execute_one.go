@@ -804,10 +804,9 @@ func (a *Agent) finishToolExecution(ctx context.Context, plan *toolCallPlan) too
 	if err != nil {
 		detail := result
 		// Malformed-args failures are a transient model JSON glitch (e.g. options
-		// written as ["a":"b"] → "invalid character ':' after array element"). The
-		// args can't be safely re-parsed, but echoing the tool's schema makes the
-		// retry land valid instead of repeating the same broken shape.
-		if !json.Valid([]byte(call.Arguments)) {
+		// written as ["a":"b"]); field-level decode errors ("json: cannot
+		// unmarshal …") are the same class — echo the schema, not a bare error.
+		if argsShapeBroken(call.Arguments, err) {
 			detail = strings.TrimRight(detail, "\n") + "\nThe arguments were not valid JSON. Re-emit them exactly per this schema:\n" + string(t.Schema())
 		}
 		a.recordRepeatFailure(call, t, err)

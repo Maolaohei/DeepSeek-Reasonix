@@ -212,6 +212,7 @@ type fuzzyMode struct {
 	trimTrailing         bool
 	expandTabs           bool
 	trimLeading          bool
+	normalizeUnicode     bool
 }
 
 func fuzzyEditRanges(content, old string) []editRange {
@@ -228,11 +229,15 @@ func fuzzyEditRanges(content, old string) []editRange {
 	modes := []fuzzyMode{
 		{trimTrailing: true},
 		{trimTrailing: true, expandTabs: true},
+		{trimTrailing: true, normalizeUnicode: true},
+		{trimTrailing: true, expandTabs: true, normalizeUnicode: true},
 	}
 	if oldHasReadPrefixes {
 		modes = append(modes,
 			fuzzyMode{stripOldReadPrefixes: true, trimTrailing: true},
 			fuzzyMode{stripOldReadPrefixes: true, trimTrailing: true, expandTabs: true},
+			fuzzyMode{stripOldReadPrefixes: true, trimTrailing: true, normalizeUnicode: true},
+			fuzzyMode{stripOldReadPrefixes: true, trimTrailing: true, expandTabs: true, normalizeUnicode: true},
 		)
 	}
 
@@ -322,10 +327,26 @@ func normalizeFuzzyLine(line string, includeNewline bool, mode fuzzyMode, stripR
 	if mode.trimLeading {
 		body = strings.TrimLeft(body, " \t")
 	}
+	if mode.normalizeUnicode {
+		body = normalizeFuzzyUnicode(body)
+	}
 	if includeNewline {
 		return body + "\n"
 	}
 	return body
+}
+
+// normalizeFuzzyUnicode maps typographic lookalikes to their ASCII forms so a
+// match survives copy-paste through word processors, web pages, and IMEs:
+// smart quotes, dashes, and non-breaking whitespace (pi edit-diff.ts:30-51).
+func normalizeFuzzyUnicode(s string) string {
+	return strings.NewReplacer(
+		"\u2018", "'", "\u2019", "'", "\u201A", "'", // ' ' ‚
+		"\u201C", `"`, "\u201D", `"`, "\u201E", `"`, // " " „
+		"\u2013", "-", "\u2014", "-", "\u2015", "-", // – — ―
+		"\u00A0", " ", "\u2007", " ", "\u202F", " ", // NBSP, figure space, narrow NBSP
+		"\u200B", "", // zero-width space
+	).Replace(s)
 }
 
 func allLinesHaveReadFilePrefix(lines []lineSegment) bool {

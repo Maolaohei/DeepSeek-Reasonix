@@ -175,7 +175,17 @@ type SessionManager struct {
 	debounce      time.Duration
 	modeOverrides map[string]string
 	dropped       map[string][]string
+	recentTexts   map[string]map[string]textSeen // key -> text -> last seen
+	rateTimes     map[string][]time.Time         // key -> recent inbound times
 }
+
+// 入站守卫窗口（对齐 pi-peer policy.ts）：10s 内同文本去重、30s 内每会话
+// 限 8 条——结构性防循环与洪水，不信任模型自觉停止。
+const (
+	dedupeWindow  = 10 * time.Second
+	rateWindow    = 30 * time.Second
+	ratePerWindow = 8
+)
 
 // NewSessionManager 创建一个新的 session 管理器。debounce 是消息合并窗口。
 func NewSessionManager(debounce time.Duration) *SessionManager {
@@ -188,7 +198,62 @@ func NewSessionManager(debounce time.Duration) *SessionManager {
 		debounce:      debounce,
 		modeOverrides: make(map[string]string),
 		dropped:       make(map[string][]string),
+		recentTexts:   make(map[string]map[string]textSeen),
+		rateTimes:     make(map[string][]time.Time),
 	}
+}
+
+// textSeen records one inbound text with its message id: a repeat with the
+// same id is a redelivery (idempotent, allowed); a repeat with a different id
+// or no id is a retry loop and is deduplicated.
+type textSeen struct {
+	at  time.Time
+	mid string
+}
+
+// inboundGuarded reports whether msg is structurally rejected before queueing:
+// a repeat of a recent text (retry loop) or more than ratePerWindow inbound
+// messages in rateWindow (flood). Bypass commands always pass.
+func (sm *SessionManager) inboundGuarded(key string, msg InboundMessage, now time.Time) bool {
+	text, mid := msg.Text, msg.MessageID
+	if IsSlashBypass(text) {
+		return false
+	}
+	seen := sm.recentTexts[key]
+	if seen != nil {
+		// Prune expired entries so the map cannot grow unboundedly.
+		cutoff := now.Add(-dedupeWindow)
+		for t, last := range seen {
+			if last.at.Before(cutoff) {
+				delete(seen, t)
+			}
+		}
+		// Same text inside the window is a retry loop unless it is the same
+		// message redelivered. Empty ids cannot prove redelivery, so they
+		// are rejected like retries.
+		if last, ok := seen[text]; ok && (last.mid == "" || last.mid != mid) {
+			return true
+		}
+	}
+	times := sm.rateTimes[key]
+	cutoff := now.Add(-rateWindow)
+	kept := times[:0]
+	for _, ts := range times {
+		if ts.After(cutoff) {
+			kept = append(kept, ts)
+		}
+	}
+	if len(kept) >= ratePerWindow {
+		sm.rateTimes[key] = kept
+		return true
+	}
+	sm.rateTimes[key] = append(kept, now)
+	if seen == nil {
+		seen = make(map[string]textSeen)
+		sm.recentTexts[key] = seen
+	}
+	seen[text] = textSeen{at: now, mid: mid}
+	return false
 }
 
 // TryAcquire 尝试获取 session 锁。如果 session 正忙且消息非绕过命令，返回 false。
@@ -201,6 +266,12 @@ func (sm *SessionManager) TryAcquire(key string, msg InboundMessage) (acquired b
 func (sm *SessionManager) TryAcquireWithQueue(key string, msg InboundMessage, opts QueueOptions) QueueResult {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
+
+	// Structural inbound guard: dedupe repeats and rate-limit floods before
+	// they reach the queue or the session.
+	if sm.inboundGuarded(key, msg, time.Now()) {
+		return QueueResult{Rejected: true, Mode: NormalizeQueueMode(opts.Mode)}
+	}
 
 	mode := NormalizeQueueMode(opts.Mode)
 	if mode == QueueModeSteer || mode == QueueModeInterrupt {

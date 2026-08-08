@@ -97,8 +97,8 @@ its direct `mcp__*` tools, so its overall provider prefix may still change when
 those direct tools are installed, connected, or refreshed.
 
 `ask`, `docs`, `explore`, `fleet`, `forget`, `history`, `install_skill`, `install_source`,
-`list_sessions`, `lsp_definition`, `lsp_diagnostics`, `lsp_hover`,
-`lsp_references`, `memory`, `parallel_tasks`, `read_only_skill`,
+`list_peers`, `list_sessions`, `lsp_definition`, `lsp_diagnostics`, `lsp_hover`,
+`lsp_references`, `memory`, `message_peer`, `parallel_tasks`, `read_only_skill`,
 `read_only_task`, `read_session`, `read_skill`, `read_subagent_result`, `refine`, `remember`, `research`,
 `review`, `run_skill`, `security_review`, `slash_command`, `task`.
 

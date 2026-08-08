@@ -1098,9 +1098,8 @@ func TestGatewayLateRecoveryAfterRetirementDoesNotReacquireLease(t *testing.T) {
 	gw.controllers[key] = state
 	handler := gw.botSessionRecoveredHandler(key, msg, state)
 
-	// Gateway shutdown retires and releases the state before waiting for every
-	// turn goroutine. A callback already captured by the controller must not
-	// reacquire a lease after that teardown.
+	// Gateway shutdown retires and releases state before waiting for turn
+	// goroutines; a captured callback must not reacquire after teardown.
 	gw.closeSessions()
 	if got := leases.HeldPath(); got != "" {
 		t.Fatalf("lease after retirement = %q, want empty", got)
@@ -1840,9 +1839,7 @@ func TestGatewayDefaultQueueSteersMediaOnlyActiveTurn(t *testing.T) {
 	if result := gw.sessions.TryAcquireWithQueue(key, msg, QueueOptions{Mode: QueueModeFollowup}); !result.Acquired {
 		t.Fatalf("failed to mark session active: %+v", result)
 	}
-
 	gw.handleMessage(context.Background(), AdapterBinding{ID: "feishu-feishu", Platform: PlatformFeishu, Adapter: adapter}, msg)
-
 	got := ctrl.steered()
 	if len(got) != 1 || !strings.Contains(got[0], "Attachments:") || !strings.Contains(got[0], "@.reasonix/attachments/") {
 		t.Fatalf("steers = %#v, want saved attachment reference", got)
@@ -1860,6 +1857,7 @@ func TestGatewayQueueFollowupKeepsMessagesForLaterTurns(t *testing.T) {
 		ChatID:       "chat",
 		UserID:       "user",
 		Text:         "first followup",
+		MessageID:    "wx-msg-1",
 	}
 	key := BuildSessionKey(msg.Session())
 	ctrl := &queueTestController{}
@@ -1872,6 +1870,7 @@ func TestGatewayQueueFollowupKeepsMessagesForLaterTurns(t *testing.T) {
 	gw.handleMessage(context.Background(), AdapterBinding{ID: "weixin-weixin", Platform: PlatformWeixin, Adapter: adapter}, msg)
 	second := msg
 	second.Text = "second followup"
+	second.MessageID = "wx-msg-2"
 	gw.handleMessage(context.Background(), AdapterBinding{ID: "weixin-weixin", Platform: PlatformWeixin, Adapter: adapter}, second)
 
 	if got := ctrl.steered(); len(got) != 0 {

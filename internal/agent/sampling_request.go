@@ -74,10 +74,21 @@ func (a *Agent) prepareSamplingRequest(ctx context.Context) (samplingRequest, er
 		return samplingRequest{}, err
 	}
 	// Cap the output budget to the window headroom so a near-full context
-	// cannot push the request over the provider limit (or truncate mid-tool).
-	if a.contextWindow > 0 {
+	// cannot overflow the provider limit or truncate mid-tool. Shared-window
+	// providers get the calibrated budget below; this clamp is the fallback.
+	if a.contextWindow > 0 && !sharesContextWindow(a.prov) {
 		req.MaxTokens = clampMaxTokensToContext(req.MaxTokens, a.contextWindow, estimateSamplingRequestInputTokens(req))
 	}
+	// Enforce the shared-window invariant on the final extension-adjusted
+	// payload. This keeps prompt + output inside the provider context window
+	// without changing message bytes, tool order, or ordinary request defaults.
+	if budget, clipped, budgetErr := a.effectiveOutputBudget(req); budgetErr != nil {
+		return samplingRequest{}, budgetErr
+	} else if clipped {
+		req.MaxTokens = budget
+	}
+	shape := a.requestCalibrationShape(req)
+	a.activeReqShape.Store(&shape)
 	return samplingRequest{req: freezeProviderRequest(req)}, nil
 }
 

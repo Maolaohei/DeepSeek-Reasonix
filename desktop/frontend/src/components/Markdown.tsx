@@ -345,11 +345,6 @@ export const Markdown = memo(function Markdown({
     [renderedText, streaming],
   );
   const sections = useMemo(() => splitStableMarkdownSections(renderedText), [renderedText]);
-  if (plain) {
-    // Pre-wrap keeps the message's own line breaks; react-markdown would have
-    // collapsed them, so this is the more faithful rendering for raw text.
-    return <div className="md md--plain">{renderedText}</div>;
-  }
   const pendingText = (streaming || text.length >= STREAMING_TAIL_THRESHOLD) && text.startsWith(renderedText)
     ? text.slice(renderedText.length)
     : "";
@@ -379,6 +374,13 @@ export const Markdown = memo(function Markdown({
     finalizeStartRef.current = 0;
     finalizeLengthRef.current = 0;
   }, []);
+
+  if (plain) {
+    // Pre-wrap keeps the message's own line breaks; react-markdown would have
+    // collapsed them, so this is the more faithful rendering for raw text.
+    // Returned after every hook above so the hook order stays unconditional.
+    return <div className="md md--plain">{renderedText}</div>;
+  }
 
   const committedView = (
     <>

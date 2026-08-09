@@ -5431,6 +5431,7 @@ export default function App() {
             lastTurnOutputTokens={state.lastTurnOutputTokens}
             lastTurnModelMs={state.lastTurnModelMs}
             lastTurnOutputEstimated={state.lastTurnOutputEstimated}
+            lastRequestTps={state.lastRequestTps}
             turnCost={state.turnCost}
             cost={state.sessionCost}
             currency={state.sessionCurrency}

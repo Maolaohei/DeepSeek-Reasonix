@@ -269,6 +269,7 @@ func build(ctx context.Context, opts Options) (*BuildResult, error) {
 	// freshly written config + ~/.env are picked up this same boot (CLI Run
 	// also calls this before config-only commands).
 	migrated, migErr := config.MigrateLegacyIfNeededForRoot(root)
+	deepSeekProtocolMigrated, deepSeekProtocolMigErr := config.MigrateLegacyDeepSeekProtocolUserConfig()
 	stepLimitsMigrated, stepLimitMigErr := config.MigrateLegacyAgentStepLimitsForRoot(root)
 	redactToolOutputMigrated, redactToolOutputMigErr := config.MigrateLegacyRedactToolOutputForRoot(root)
 	memoryCompilerMigrated, memoryCompilerMigErr := config.MigrateLegacyMemoryCompilerForRoot(root)
@@ -472,6 +473,21 @@ func build(ctx context.Context, opts Options) (*BuildResult, error) {
 	} else if migrated != nil {
 		sink.Emit(event.Event{Kind: event.Notice, Level: event.LevelInfo, Text: migrated.Notice()})
 	}
+	if deepSeekProtocolMigrated {
+		sink.Emit(event.Event{
+			Kind:   event.Notice,
+			Level:  event.LevelInfo,
+			Text:   "DeepSeek official access was upgraded to Anthropic Messages.",
+			Detail: "Your unmodified legacy OpenAI Chat Completions configuration now uses DeepSeek's recommended Anthropic endpoint with server-side web search. Existing model names and pricing were preserved. The first request starts a new provider cache prefix; later requests rebuild normal prefix-cache reuse.",
+		})
+	} else if deepSeekProtocolMigErr != nil {
+		sink.Emit(event.Event{
+			Kind:   event.Notice,
+			Level:  event.LevelWarn,
+			Text:   "DeepSeek protocol migration did not complete.",
+			Detail: deepSeekProtocolMigErr.Error(),
+		})
+	}
 	if stepLimitsMigrated || cfg.IgnoredLegacyAgentStepLimits() {
 		level := event.LevelInfo
 		text := "Deprecated agent step limits were removed."
@@ -656,13 +672,16 @@ func build(ctx context.Context, opts Options) (*BuildResult, error) {
 		recordHarnessLoads(sink, projectHarness, globalHarness)
 	}
 
+	implicitSkillInvocation := cfg.ImplicitSkillInvocationEnabled()
 	// Skills: rediscovery skipped on no-op/interceptor/UI rebuilds when
 	// ReuseAssembly is retained from the previous BuildResult.
 	var skillStore *skill.Store
 	var skills []skill.Skill
 	var allSkillStore *skill.Store
 	var allSkills []skill.Skill
-	if opts.ReuseAssembly != nil && shouldReuseDiscovery(opts.PreviousPlan) {
+	canReuseSkills := opts.ReuseAssembly != nil && shouldReuseDiscovery(opts.PreviousPlan) &&
+		opts.ReuseAssembly.ImplicitSkillInvocation == implicitSkillInvocation
+	if canReuseSkills {
 		skills = opts.ReuseAssembly.Skills
 		allSkills = skills
 		skillStore = skill.New(skill.Options{ProjectRoot: root, Stderr: io.Discard})
@@ -680,7 +699,7 @@ func build(ctx context.Context, opts Options) (*BuildResult, error) {
 		skills = skillStore.List()
 		allSkillStore = skill.New(skill.Options{ProjectRoot: root, CustomPaths: cfg.SkillCustomPaths(), PluginPaths: cfg.PluginPackageSkillOwners(), PluginAgentPaths: cfg.PluginPackageAgentOwners(), ExcludedPaths: cfg.SkillExcludedPaths(), MaxDepth: cfg.SkillMaxDepth(), Stderr: io.Discard})
 		allSkills = allSkillStore.List()
-		if !tokenEconomy {
+		if !tokenEconomy && implicitSkillInvocation {
 			sysPrompt = skill.ApplyIndex(sysPrompt, skills)
 		}
 	}
@@ -1321,7 +1340,11 @@ func build(ctx context.Context, opts Options) (*BuildResult, error) {
 		if runOptions.DeliveryProfile {
 			runOptions.RequireReviewReportKind = agent.ReviewReportKindForSkill(sk.Name)
 		}
-		return agent.RunReadOnlySubAgentWithSession(sctx, prov, subReg, agent.NewSession(sysPrompt), task,
+		// Provider serializers decide whether these images are wire-visible from
+		// the child model's own vision capability. Text-only children retain the
+		// attachment metadata locally but never receive image parts on the wire.
+		childCtx := agent.WithUserImages(sctx, agent.SubagentImageCandidates(sctx))
+		return agent.RunReadOnlySubAgentWithSession(childCtx, prov, subReg, agent.NewSession(sysPrompt), task,
 			runOptions, agent.NestedSink(sctx, event.Discard))
 	}
 	// Writer-capable subagent skills reuse the sub-agent machinery via this
@@ -1443,11 +1466,14 @@ func build(ctx context.Context, opts Options) (*BuildResult, error) {
 			runOptions.RequireReviewReportKind = agent.ReviewReportKindForSkill(sk.Name)
 		}
 		var answer string
+		// See the read-only runner above: the child provider, not the parent
+		// model, owns the final vision decision.
+		childCtx := agent.WithUserImages(sctx, agent.SubagentImageCandidates(sctx))
 		if sk.ReadOnly {
-			answer, err = agent.RunReadOnlySubAgentWithSession(sctx, prov, subReg, run.Session, task,
+			answer, err = agent.RunReadOnlySubAgentWithSession(childCtx, prov, subReg, run.Session, task,
 				runOptions, agent.NestedSink(sctx, event.Discard))
 		} else {
-			answer, err = agent.RunSubAgentWithSession(sctx, prov, subReg, run.Session, task,
+			answer, err = agent.RunSubAgentWithSession(childCtx, prov, subReg, run.Session, task,
 				runOptions, agent.NestedSink(sctx, event.Discard))
 		}
 		if err != nil {
@@ -1480,7 +1506,7 @@ func build(ctx context.Context, opts Options) (*BuildResult, error) {
 		// Expose loaded slash commands to the model via slash_command. In economy
 		// mode skills join this list only after the skills source is enabled.
 		var slashEntries []command.SlashEntry
-		if includeSkills {
+		if includeSkills && implicitSkillInvocation {
 			for _, sk := range skillStore.SlashList() {
 				slashEntries = append(slashEntries, command.SlashEntry{
 					Name:        sk.SlashName(),
@@ -1572,6 +1598,9 @@ func build(ctx context.Context, opts Options) (*BuildResult, error) {
 	}
 	readOnlySkillToolsAdded := false
 	addReadOnlySkillTools := func() string {
+		if !implicitSkillInvocation {
+			return "automatic skill invocation is disabled; use an explicit /skill command instead."
+		}
 		if readOnlySkillToolsAdded {
 			return "read_only_skill tool is already enabled.\n\n" + skill.ReadOnlyIndexBlock(skills)
 		}
@@ -1581,6 +1610,9 @@ func build(ctx context.Context, opts Options) (*BuildResult, error) {
 	}
 	skillToolsAdded := false
 	addSkillTools := func() string {
+		if !implicitSkillInvocation {
+			return "automatic skill invocation is disabled; use an explicit /skill command instead."
+		}
 		if skillToolsAdded {
 			return "skills are already enabled.\n\n" + skill.IndexBlock(skills)
 		}
@@ -1592,12 +1624,16 @@ func build(ctx context.Context, opts Options) (*BuildResult, error) {
 		for _, t := range skill.BuiltinSubagentTools(skillStore, skillRunner, skillProfile) {
 			reg.Add(t)
 		}
-		addSlashCommandTool(true)
+		addSlashCommandTool(implicitSkillInvocation)
 		return "enabled skills. Use run_skill/read_skill/read_only_skill or the dedicated skill tools on the next model request.\n\n" + skill.IndexBlock(skills)
 	}
 	if !tokenEconomy {
 		addInstallSourceTool()
-		addSkillTools()
+		if implicitSkillInvocation {
+			addSkillTools()
+		} else {
+			addSlashCommandTool(false)
+		}
 	}
 	if tokenEconomy {
 		addBuiltinSourceTools := func(source string, names ...string) string {
@@ -1944,14 +1980,16 @@ func build(ctx context.Context, opts Options) (*BuildResult, error) {
 		SessionDir:   sessionDir,
 		Host:         pluginHost,
 		Commands:     cmds,
-		Skills:       skills, AllSkills: allSkills,
-		SkillStore:          skillStore,
-		AllSkillStore:       allSkillStore,
-		SkillRunner:         skillRunner,
-		ReadOnlySkillRunner: readOnlySkillRunner,
-		SkillProfile:        skillProfile,
-		Hooks:               hookRunner,
-		Memory:              mem,
+		Skills:                         skills,
+		AllSkills:                      allSkills,
+		SkillStore:                     skillStore,
+		AllSkillStore:                  allSkillStore,
+		DisableImplicitSkillInvocation: !implicitSkillInvocation,
+		SkillRunner:                    skillRunner,
+		ReadOnlySkillRunner:            readOnlySkillRunner,
+		SkillProfile:                   skillProfile,
+		Hooks:                          hookRunner,
+		Memory:                         mem,
 		// Indirection: the cleanup variable gains the extension runtime set at
 		// the end of build (snapshot assembly runs after control.New), and the
 		// controller must observe the final chain at Close time.
@@ -2216,7 +2254,14 @@ func build(ctx context.Context, opts Options) (*BuildResult, error) {
 			ctrl.ApplyExtensionSystemPrompt(final)
 		}
 	}
-	assembly := &ReusedAssembly{SystemPrompt: sysPrompt, Skills: skills, Commands: cmds, Hooks: resolvedHooks, Registry: reg}
+	assembly := &ReusedAssembly{
+		SystemPrompt:            sysPrompt,
+		Skills:                  skills,
+		Commands:                cmds,
+		Hooks:                   resolvedHooks,
+		Registry:                reg,
+		ImplicitSkillInvocation: implicitSkillInvocation,
+	}
 	return finalizeBuildResult(&BuildResult{Controller: ctrl, Snapshot: snap, Runtime: runtimeSet, Owner: owner, Extensions: extensionMgr, Dispatcher: extensionDispatcher, ExtensionUI: extUIHub, ProviderResolver: providerResolver, BaseProviderResolver: baseResolver, Assembly: assembly}, !opts.deferPublish), nil
 }
 
@@ -2665,23 +2710,22 @@ func NewProviderWithProxy(e *config.ProviderEntry, proxy netclient.ProxySpec) (p
 		// provider-kind-specific knobs. EffectiveEffort applies a configured
 		// default_effort when the user has not explicitly selected /effort.
 		Extra: map[string]any{
-			"api_key_env":           e.APIKeyEnv,
-			"api_key_source":        e.APIKeySourceLabel(),
-			"thinking":              e.Thinking,
-			"effort":                config.EffectiveEffort(e),
-			"supported_efforts":     e.SupportedEfforts,
-			"reasoning_protocol":    config.ReasoningProtocolForEntry(e),
-			"max_output_tokens":     e.MaxOutputTokens,
-			"chat_url":              e.ChatURL,
-			"headers":               e.Headers,
-			"extra_body":            e.ExtraBody,
-			"auth_header":           e.AuthHeader,
-			"proxy_spec":            proxy,
-			"vision":                config.EffectiveVision(e),
-			"vision_model_explicit": config.ExplicitModelVision(e),
-			"vision_detail":         e.VisionDetail,
-			"web_search":            config.EffectiveWebSearch(e),
-			"mode":                  e.ResponsesMode,
+			"api_key_env":        e.APIKeyEnv,
+			"api_key_source":     e.APIKeySourceLabel(),
+			"thinking":           e.Thinking,
+			"effort":             config.EffectiveEffort(e),
+			"supported_efforts":  e.SupportedEfforts,
+			"reasoning_protocol": config.ReasoningProtocolForEntry(e),
+			"max_output_tokens":  e.MaxOutputTokens,
+			"chat_url":           e.ChatURL,
+			"headers":            e.Headers,
+			"extra_body":         e.ExtraBody,
+			"auth_header":        e.AuthHeader,
+			"proxy_spec":         proxy,
+			"vision":             config.EffectiveVision(e),
+			"vision_detail":      e.VisionDetail,
+			"web_search":         config.EffectiveWebSearch(e),
+			"mode":               e.ResponsesMode,
 			// Keep nil as nil so the responses provider can vendor-detect its
 			// default instead of accidentally treating every endpoint as stateful.
 			"stateful": e.ResponsesStateful,

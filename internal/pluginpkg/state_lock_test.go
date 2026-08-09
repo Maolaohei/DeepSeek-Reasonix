@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"sync"
 	"testing"
+	"time"
 )
 
 // TestStateConcurrentUpsertAndSetEnabled pins that concurrent load-modify-save
@@ -130,5 +131,10 @@ func TestStateLoadDuringSaveNeverSeesTornFile(t *testing.T) {
 			return
 		default:
 		}
+		// Yield the reader's file handle between iterations: on Windows a
+		// zero-gap loop holds the state file open almost continuously, so the
+		// writer's rename can never land inside its retry window. A real
+		// reader reads on demand, not in a tight loop.
+		time.Sleep(time.Millisecond)
 	}
 }

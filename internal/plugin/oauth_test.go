@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -216,6 +217,9 @@ func TestAuthorizeHTTPMCPUsesDiscoveryPKCEAndPersistsPrivateToken(t *testing.T) 
 		t.Fatalf("registered redirect = %q", registeredRedirect)
 	}
 	tokenPath := filepath.Join(stateDir, mcpOAuthStateFile)
+	if runtime.GOOS == "windows" {
+		t.Skip("chmod permissions are not portable to Windows")
+	}
 	info, err := os.Stat(tokenPath)
 	if err != nil {
 		t.Fatalf("stat token state: %v", err)

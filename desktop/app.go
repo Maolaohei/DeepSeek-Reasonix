@@ -9849,15 +9849,11 @@ type sessionLeaseBusyError struct {
 }
 
 func (e *sessionLeaseBusyError) Error() string {
-	// The raw SessionLeaseError text carries the session path and the
-	// holder's host-pid-writer id; every user-facing surface must render
-	// this wrapper instead. An empty setting means the failure gated opening
-	// the session itself (startup bind), not changing a setting on it.
-	setting := strings.TrimSpace(e.setting)
-	if setting == "" {
-		return "this session is already open in another Reasonix window or still running in the background; close the other window or open a copy"
+	base := "this session is already open in another Reasonix window or still running in the background; close the other window or open a copy"
+	if setting := strings.TrimSpace(e.setting); setting != "" {
+		base += fmt.Sprintf(" before changing %s", setting)
 	}
-	return fmt.Sprintf("this session is already open in another Reasonix window or still running in the background; close the other window or open a copy before changing %s", setting)
+	return appendSessionLeaseHolderDetail(base, e.err)
 }
 
 func (e *sessionLeaseBusyError) Unwrap() error {

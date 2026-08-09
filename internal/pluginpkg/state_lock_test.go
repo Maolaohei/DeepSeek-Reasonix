@@ -85,10 +85,9 @@ func TestStateConcurrentRemove(t *testing.T) {
 
 // TestStateLoadDuringSaveNeverSeesTornFile pins the atomic write: a reader
 // racing a writer sees either the old state or the new one, never a truncated
-// or half-written file (which would surface as a JSON parse error). On Windows
-// the rename that publishes a new state file can make a concurrent open fail
-// with a transient sharing violation — that is the platform's locking
-// behavior, not a torn file, so such reads are retried instead of failed.
+// or half-written file (which would surface as a JSON parse error). On
+// Windows the rename that publishes a new state file can make a concurrent
+// open fail with a transient sharing violation — not a torn file, so retried.
 func TestStateLoadDuringSaveNeverSeesTornFile(t *testing.T) {
 	home := t.TempDir()
 	if err := Upsert(home, InstalledPlugin{Name: "seed", Root: "plugins/seed", Enabled: true}); err != nil {
@@ -132,9 +131,7 @@ func TestStateLoadDuringSaveNeverSeesTornFile(t *testing.T) {
 		default:
 		}
 		// Yield the reader's file handle between iterations: on Windows a
-		// zero-gap loop holds the state file open almost continuously, so the
-		// writer's rename can never land inside its retry window. A real
-		// reader reads on demand, not in a tight loop.
+		// zero-gap loop blocks the writer's rename forever.
 		time.Sleep(time.Millisecond)
 	}
 }

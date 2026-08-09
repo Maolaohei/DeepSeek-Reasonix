@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -77,5 +78,47 @@ func TestEnsureTabSessionLeaseForRebuildSurvivesTransientHolder(t *testing.T) {
 
 	if key := tab.sessionLeaseRuntimeKey(); key != sessionRuntimeKey(path) {
 		t.Fatalf("tab lease key = %q, want %q", key, sessionRuntimeKey(path))
+	}
+}
+
+// TestSessionLeaseBusyErrorCarriesHolderIdentity pins that the user-facing
+// "already open" error renders who holds the session (hostname/writer id,
+// pid, acquisition time) so the user can decide whether a real window or a
+// leftover process owns it, instead of a bare generic notice.
+func TestSessionLeaseBusyErrorCarriesHolderIdentity(t *testing.T) {
+	when := time.Date(2026, 8, 9, 10, 30, 0, 0, time.UTC)
+	info := &agent.SessionLeaseInfo{
+		WriterID:   "writer-abc123",
+		PID:        4242,
+		Hostname:   "desk-pc",
+		AcquiredAt: when,
+	}
+	err := &sessionLeaseBusyError{err: &agent.SessionLeaseError{Path: "/s/x.jsonl", Info: info}}
+	got := err.Error()
+	for _, want := range []string{
+		"already open in another Reasonix window",
+		"held by desk-pc/writer-abc123",
+		"pid 4242",
+		"2026-08-09 10:30:00",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("error missing %q: %s", want, got)
+		}
+	}
+
+	// Setting-bearing variant still names the setting and the holder.
+	settingErr := &sessionLeaseBusyError{setting: "model", err: &agent.SessionLeaseError{Path: "/s/x.jsonl", Info: info}}
+	if got := settingErr.Error(); !strings.Contains(got, "before changing model") || !strings.Contains(got, "writer-abc123") {
+		t.Fatalf("setting variant lost context: %s", got)
+	}
+
+	// No holder info (missing/cleared lease metadata): fall back to the
+	// generic message unchanged, never a half-rendered holder suffix.
+	generic := &sessionLeaseBusyError{err: &agent.SessionLeaseError{Path: "/s/x.jsonl"}}
+	if got := generic.Error(); got != "this session is already open in another Reasonix window or still running in the background; close the other window or open a copy" {
+		t.Fatalf("generic variant changed: %s", got)
+	}
+	if got := (&sessionLeaseBusyError{}).Error(); got != "this session is already open in another Reasonix window or still running in the background; close the other window or open a copy" {
+		t.Fatalf("empty variant changed: %s", got)
 	}
 }

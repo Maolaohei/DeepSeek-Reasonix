@@ -389,7 +389,7 @@ func TestCoordinatorSkipsPlannerForTrivialTurn(t *testing.T) {
 	if planner.lastReq.Messages != nil {
 		t.Error("planner should not be called for a skipped turn")
 	}
-	if got := lastUser(exec.lastReq); got != "what does this function do?" {
+	if got := lastUser(exec.lastReq); StripTransientUserBlocks(got) != "what does this function do?" {
 		t.Errorf("executor saw %q, want the raw input with no plan handoff", got)
 	}
 	if n := len(plannerSess.Messages); n != 1 { // just the system message
@@ -1504,7 +1504,7 @@ func TestCoordinatorFallsBackToExecutorWhenPlannerFails(t *testing.T) {
 			if got := len(exec.requests); got != 1 {
 				t.Fatalf("executor requests = %d, want 1 fallback run", got)
 			}
-			got := lastUser(exec.requests[0])
+			got := StripTransientUserBlocks(lastUser(exec.requests[0]))
 			if got != "fix the bug" || strings.Contains(got, "You are the executor now") {
 				t.Fatalf("fallback executor input = %q, want the raw task without handoff boilerplate", got)
 			}

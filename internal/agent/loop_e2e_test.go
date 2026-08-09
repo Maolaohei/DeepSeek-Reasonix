@@ -225,7 +225,7 @@ func TestRunCancelledMidStreamLeavesResumableSession(t *testing.T) {
 		}
 	}
 	last := repaired[len(repaired)-1]
-	if last.Role != provider.RoleUser || last.Content != "do the thing" {
+	if last.Role != provider.RoleUser || StripTransientUserBlocks(last.Content) != "do the thing" {
 		t.Errorf("the pending user message should survive a cancel, got %+v", last)
 	}
 }

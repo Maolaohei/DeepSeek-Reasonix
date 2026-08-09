@@ -83,7 +83,7 @@ briefly), and the task is a question, comparison, analysis, or explanation that
 your reply itself fully answers — write the complete answer, then the marker.
 The host then delivers your reply directly instead of starting the executor.
 Never emit that marker when any workspace change, command, verification, or
-follow-up action remains.`
+follow-up action remains.` + plannerScopeEstimatePart
 
 const executorHandoffMarker = "Reasonix executor handoff"
 

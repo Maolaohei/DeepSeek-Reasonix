@@ -484,6 +484,7 @@ const (
 	NoticeCodeToolBudget                    = "tool_budget"
 	NoticeCodeLoopGuard                     = "loop_guard"
 	NoticeCodeProgressGuard                 = "progress_guard"
+	NoticeCodeScope                         = "scope"
 	NoticeCodeEvidenceNudge                 = "evidence_nudge"
 	NoticeCodeReasoningGovernor             = "reasoning_governor"
 	NoticeCodeWorkspaceLease                = "workspace_lease"

@@ -148,8 +148,8 @@ func TestTaskToolInheritsReasoningLanguageFromContext(t *testing.T) {
 		t.Fatalf("Execute: %v", err)
 	}
 	got := lastUser(sub.lastReq)
-	if !strings.HasPrefix(got, "<reasoning-language>") || !strings.Contains(got, "简体中文") || !strings.HasSuffix(got, "inspect auth") {
-		t.Fatalf("sub-agent user = %q, want reasoning-language-prefixed prompt", got)
+	if !strings.Contains(got, "<reasoning-language>") || !strings.Contains(got, "简体中文") || !strings.HasSuffix(got, "inspect auth") {
+		t.Fatalf("sub-agent user = %q, want reasoning-language block and task suffix", got)
 	}
 }
 

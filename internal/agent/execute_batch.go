@@ -85,11 +85,10 @@ func (a *Agent) executeBatch(ctx context.Context, calls []provider.ToolCall) bat
 			calls[i].ResolvedReadOnly = &readOnly
 			surfaceWriters[i] = !readOnly
 		}
-		if calls[i].Name == "complete_step" && outcomes[i].errMsg == "" {
-			completedStepInBatch = true
-		}
+		completedStepInBatch = completedStepInBatch || (calls[i].Name == "complete_step" && outcomes[i].errMsg == "")
 		durations[i] = time.Since(start).Milliseconds()
 		results[i] = outcomes[i].output
+		a.maybeScopeHint(results, i, calls[i].Name, outcomes[i].errMsg)
 	}
 	finalize := func(i int) {
 		if calls[i].ResolvedReadOnly != nil {

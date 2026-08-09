@@ -26,6 +26,7 @@ var TransientUserBlockTags = []string{
 	"hook-context",
 	"capability-route",
 	"interrupted-turn-recovery",
+	"scope-estimate",
 }
 
 var reTransientUserBlock = buildTransientUserBlockRE(TransientUserBlockTags)

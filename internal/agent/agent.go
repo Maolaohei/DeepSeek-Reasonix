@@ -278,14 +278,19 @@ type ToolHooks interface {
 // Agent drives a single task: a Provider, a tool Registry, and a Session wired
 // into the main loop.
 type Agent struct {
-	prov               provider.Provider
-	tools              *tool.Registry
-	session            *Session
-	sessMu             sync.Mutex // guards the session pointer for external Session()/SetSession
-	maxSteps           int
-	maxStepsKey        string
-	reasoningByteLimit int
-	maxOutputTokens    int
+	prov        provider.Provider
+	tools       *tool.Registry
+	session     *Session
+	sessMu      sync.Mutex // guards the session pointer for external Session()/SetSession
+	maxSteps    int
+	maxStepsKey string
+	// scopeReadCalls counts read-only discovery tool calls this turn for the
+	// E3 read-budget hint; reset at each Run.
+	scopeReadCalls atomic.Int32
+	// disableScopeEstimation mirrors Options.DisableScopeEstimation.
+	disableScopeEstimation bool
+	reasoningByteLimit     int
+	maxOutputTokens        int
 	// executorHandoffGuard is enabled by Coordinator only for the executor agent.
 	executorHandoffGuard bool
 	temperature          float64
@@ -1152,6 +1157,9 @@ type Options struct {
 	SessionPath            string // projection sidecar path; empty = memory only
 	WorkspaceID            string // prompt-cache lineage component
 	StrictAlternatingRoles bool   // merge adjacent user turns for strict providers at request time
+	// DisableScopeEstimation turns off the E3-style <scope-estimate> user-turn
+	// block and the read-budget hint (default: enabled).
+	DisableScopeEstimation bool
 
 	// Hooks fires PreToolUse / PostToolUse shell hooks around tool calls. nil
 	// disables hook firing.
@@ -1298,10 +1306,7 @@ func New(prov provider.Provider, tools *tool.Registry, session *Session, opts Op
 	if nilutil.IsNil(hooks) {
 		hooks = nil
 	}
-	maxStepsKey := opts.MaxStepsKey
-	if strings.TrimSpace(maxStepsKey) == "" {
-		maxStepsKey = "max_steps"
-	}
+	maxStepsKey := defaultMaxStepsKey(opts.MaxStepsKey)
 	maxSubagentDepth := opts.MaxSubagentDepth
 	if maxSubagentDepth == 0 {
 		maxSubagentDepth = DefaultMaxSubagentDepth
@@ -1334,6 +1339,7 @@ func New(prov provider.Provider, tools *tool.Registry, session *Session, opts Op
 		recoveryTaskID:            strings.TrimSpace(opts.RecoveryTaskID),
 		readOnlyExecution:         opts.ReadOnlyExecution,
 		plannerMCPExecution:       opts.PlannerMCPExecution,
+		disableScopeEstimation:    opts.DisableScopeEstimation,
 		planModeReadOnlyTrust:     planModeReadOnlyTrust,
 		sandboxEscapeApprover:     sandboxEscapeApprover,
 		configWriteApprover:       configWriteApprover,
@@ -1376,6 +1382,13 @@ func New(prov provider.Provider, tools *tool.Registry, session *Session, opts Op
 	a.maybeArmForkFromEnv()
 	a.maybeWrapForkCaptureProvider()
 	return a
+}
+
+func defaultMaxStepsKey(k string) string {
+	if strings.TrimSpace(k) == "" {
+		return "max_steps"
+	}
+	return k
 }
 
 func usageSourceOrDefault(source, fallback string) string {

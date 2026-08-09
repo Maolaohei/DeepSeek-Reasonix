@@ -240,7 +240,7 @@ func (a *Agent) beginRunTurn(ctx context.Context, input string) (rawInput string
 		a.repeatFailureScope = ""
 	}
 	a.sink.Emit(event.Event{Kind: event.TurnStarted})
-	input = a.withTurnPreferences(providerInput)
+	input = a.maybeInjectScopeEstimate(a.withTurnPreferences(providerInput))
 	userCreatedAt := time.Now().UnixMilli()
 	a.activeTurnCreatedAt.Store(userCreatedAt)
 	rawContent := ""
@@ -811,6 +811,7 @@ func usageRequestCount(usage *provider.Usage) int {
 }
 
 func (a *Agent) emitTurnUsage(usage *provider.Usage, cacheDiagnostics *CacheDiagnostics) {
+	a.emitScopeNotice()
 	if usage == nil || (usage.TotalTokens <= 0 && usage.RequestCount <= 0) {
 		return
 	}

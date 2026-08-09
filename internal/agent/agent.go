@@ -2659,40 +2659,6 @@ func upsertPartialToolCall(calls []provider.ToolCall, call provider.ToolCall) []
 	return append(calls, call)
 }
 
-func (a *Agent) recordInterruptedDisplay(text, reasoning string, calls []provider.ToolCall, pending bool, workDurationMs int64) {
-	displayCalls := make([]provider.ToolCall, 0, len(calls))
-	interrupted := make([]string, 0, len(calls))
-	seen := make(map[string]struct{}, len(calls))
-	for _, call := range calls {
-		name := strings.TrimSpace(call.Name)
-		key := call.ID + "\x00" + name
-		if _, ok := seen[key]; ok {
-			continue
-		}
-		seen[key] = struct{}{}
-		displayCalls = append(displayCalls, provider.ToolCall{ID: call.ID, Name: name})
-		if name != "" {
-			interrupted = append(interrupted, name)
-		}
-	}
-	a.session.Add(provider.Message{
-		Role:             provider.RoleTool,
-		Content:          text,
-		ReasoningContent: reasoning,
-		ToolCalls:        displayCalls,
-		ToolCallID:       provider.LocalOnlyToolID,
-		Name:             provider.LocalOnlyToolName,
-		WorkDurationMs:   workDurationMs,
-		LocalOnly:        true,
-		InterruptedTurn: &provider.InterruptedTurnRecovery{
-			Pending:                 pending,
-			InterruptedTools:        interrupted,
-			DroppedPartialText:      strings.TrimSpace(text) != "",
-			DroppedPartialReasoning: strings.TrimSpace(reasoning) != "",
-		},
-	})
-}
-
 func (a *Agent) capturePrefixShape(schemas []provider.ToolSchema) PrefixShape {
 	return CaptureShape(a.systemPrompt(), schemas, a.session.RewriteVersion())
 }

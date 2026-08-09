@@ -131,13 +131,13 @@ type DecisionReceipt struct {
 }
 
 // InterruptedTurnRecovery is the durable, provider-excluded handoff for a turn
-// that stopped before producing a clean final answer. It contains only bounded
-// structural facts; raw partial reasoning remains on the LocalOnly Message for
-// display and is never copied into the recovery prompt.
+// that stopped before a clean final answer. It contains only bounded
+// structural facts; raw partial reasoning stays on the LocalOnly Message.
 type InterruptedTurnRecovery struct {
 	Pending                 bool                     `json:"pending,omitempty"`
 	CompletedTools          []InterruptedToolSummary `json:"completed_tools,omitempty"`
 	InterruptedTools        []string                 `json:"interrupted_tools,omitempty"`
+	InterruptedToolArgs     []string                 `json:"interrupted_tool_args,omitempty"`
 	DroppedPartialText      bool                     `json:"dropped_partial_text,omitempty"`
 	DroppedPartialReasoning bool                     `json:"dropped_partial_reasoning,omitempty"`
 }

@@ -89,6 +89,12 @@ func interruptedRecoveryBlock(r *provider.InterruptedTurnRecovery) string {
 				b.WriteString(", ")
 			}
 			b.WriteString(html.EscapeString(strings.TrimSpace(name)))
+			// A fully streamed tool call keeps its arguments so the model can
+			// re-issue the exact call instead of guessing what it had planned.
+			if i < len(r.InterruptedToolArgs) && r.InterruptedToolArgs[i] != "" {
+				b.WriteString(" args=")
+				b.WriteString(html.EscapeString(clipRecoveryValue(r.InterruptedToolArgs[i])))
+			}
 		}
 		b.WriteByte('\n')
 	}

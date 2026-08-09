@@ -194,7 +194,11 @@ func ReclaimableRecoveryBranches(dir string, now time.Time, grace time.Duration)
 			continue
 		}
 		if !recoveryBranchIdle(path, meta, now, grace) {
-			continue
+			// An idle recovered successor forking directly off this branch
+			// already carries its transcript, so the branch is redundant now.
+			if !recoveryBranchSupersededByDescendant(path, dir, meta, now, grace) {
+				continue
+			}
 		}
 		if SessionLeaseHeld(path) {
 			continue
@@ -269,6 +273,37 @@ func recoveryBranchIdle(path string, meta BranchMeta, now time.Time, grace time.
 		idleSince = info.ModTime()
 	}
 	return now.Sub(idleSince) >= grace
+}
+
+// recoveryBranchSupersededByDescendant reports whether a newer recovered
+// branch forked directly off path and has gone idle — its transcript carries
+// this branch's, so reclaim can skip the branch's own idle grace.
+func recoveryBranchSupersededByDescendant(path, dir string, meta BranchMeta, now time.Time, grace time.Duration) bool {
+	id := BranchID(path)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".jsonl") || strings.HasSuffix(e.Name(), ".events.jsonl") {
+			continue
+		}
+		child := filepath.Join(dir, e.Name())
+		if child == path || !IsVisibleSession(child) {
+			continue
+		}
+		cmeta, ok, err := LoadBranchMeta(child)
+		if err != nil || !ok || !cmeta.Recovered {
+			continue
+		}
+		if strings.TrimSpace(cmeta.ParentID) != id {
+			continue
+		}
+		if recoveryBranchIdle(child, cmeta, now, grace) {
+			return true
+		}
+	}
+	return false
 }
 
 // reconcileRecoveryTrashPending completes an interrupted move left by the

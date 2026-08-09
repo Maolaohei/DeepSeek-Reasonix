@@ -386,3 +386,67 @@ func TestReconcileCleanupPendingFinishesRecoveryTrashWithoutHardDeleteCallback(t
 		t.Fatalf("reconciled trash metadata: %v", err)
 	}
 }
+
+// TestReclaimableRecoveryBranchesSupersededByDescendant pins L3-a: a branch
+// that is not yet idle is still reclaimable when a recovered successor forked
+// directly off it and has gone idle — the successor carries the branch's
+// transcript, so each member of an interruption chain stops waiting its own
+// 24h grace. Without such a successor the branch keeps waiting.
+func TestReclaimableRecoveryBranchesSupersededByDescendant(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Now()
+	grace := 24 * time.Hour
+
+	// Branch X: covered by its parent (redundant content) but not idle.
+	_, xPath, xMsgs := forkRecoveryBranch(t, dir, "chain-x")
+	coverBranchInParent(t, filepath.Join(dir, "chain-x.jsonl"), xMsgs)
+
+	// Without a successor, X stays (not idle).
+	got, err := ReclaimableRecoveryBranches(dir, now, grace)
+	if err != nil {
+		t.Fatalf("ReclaimableRecoveryBranches: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("non-idle branch reclaimed without successor: %v", got)
+	}
+
+	// Fork Y directly off X (Y.ParentID == BranchID(X)); Y is Recovered.
+	ySession, err := LoadSession(xPath)
+	if err != nil {
+		t.Fatalf("load X for fork: %v", err)
+	}
+	ySession.Add(provider.Message{Role: provider.RoleAssistant, Content: "continued on Y"})
+	yInfo, err := ySession.SaveRecoveryBranch(RecoveryBranchOptions{OriginalPath: xPath})
+	if err != nil {
+		t.Fatalf("SaveRecoveryBranch(Y): %v", err)
+	}
+	yMeta, ok, err := LoadBranchMeta(yInfo.Path)
+	if err != nil || !ok {
+		t.Fatalf("load Y meta: ok=%v err=%v", ok, err)
+	}
+	if yMeta.ParentID != BranchID(xPath) {
+		t.Fatalf("Y parent = %q, want %q", yMeta.ParentID, BranchID(xPath))
+	}
+
+	// Make Y idle (updated 48h ago); X stays fresh.
+	xMeta, ok, err := LoadBranchMeta(xPath)
+	if err != nil || !ok {
+		t.Fatalf("load X meta: ok=%v err=%v", ok, err)
+	}
+	xMeta.UpdatedAt = now.Add(10 * time.Minute)
+	if err := SaveBranchMetaPreserveUpdated(xPath, xMeta); err != nil {
+		t.Fatalf("save X meta: %v", err)
+	}
+	yMeta.UpdatedAt = now.Add(-48 * time.Hour)
+	if err := SaveBranchMetaPreserveUpdated(yInfo.Path, yMeta); err != nil {
+		t.Fatalf("save Y meta: %v", err)
+	}
+
+	got, err = ReclaimableRecoveryBranches(dir, now, grace)
+	if err != nil {
+		t.Fatalf("ReclaimableRecoveryBranches: %v", err)
+	}
+	if len(got) != 1 || got[0] != xPath {
+		t.Fatalf("superseded branch not reclaimed: got %v, want [%s]", got, xPath)
+	}
+}

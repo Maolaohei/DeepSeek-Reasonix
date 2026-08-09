@@ -27,10 +27,9 @@ import (
 	"reasonix/internal/workspacelease"
 )
 
-// withSubagentSessionTemp installs a fresh session-private temporary directory
-// Manager for one sub-agent run. The returned release must be deferred by the
-// caller so the directory is retired when the run ends (including background
-// sub-agent completion).
+// withSubagentSessionTemp installs a session-private temp-dir Manager for one
+// sub-agent run; the returned release must be deferred so the dir is retired
+// when the run ends (including background sub-agent completion).
 func withSubagentSessionTemp(ctx context.Context) (context.Context, func()) {
 	m := sessiontemp.New()
 	m.Retain()
@@ -74,6 +73,7 @@ var subagentRecursiveTools = []string{
 	"research",
 	"review",
 	"security_review",
+	"rlm",
 }
 
 var subagentAlwaysHiddenTools = []string{

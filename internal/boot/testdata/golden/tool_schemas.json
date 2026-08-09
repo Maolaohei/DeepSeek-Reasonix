@@ -1483,6 +1483,41 @@
     }
   },
   {
+    "Name": "rlm",
+    "Description": "Recursive task decomposition: break a complex task into subtasks, solve them in parallel sub-agents, and merge the results. Unlike task (one sub-agent) or fleet (a fixed batch you list), rlm decides the decomposition itself and can nest. Use for broad analysis or multi-part work where a single pass would lose depth. Guards (depth/node budget/cycle detection) keep recursion bounded.",
+    "ReadOnly": false,
+    "Schema": {
+      "additionalProperties": false,
+      "properties": {
+        "max_depth": {
+          "description": "Optional recursion depth cap (default 3)",
+          "type": "integer"
+        },
+        "max_nodes": {
+          "description": "Optional total node budget (default 8)",
+          "type": "integer"
+        },
+        "mode": {
+          "description": "auto: planner decides; decompose: force splitting; solve: force direct",
+          "enum": [
+            "auto",
+            "decompose",
+            "solve"
+          ],
+          "type": "string"
+        },
+        "prompt": {
+          "description": "The task to decompose and solve",
+          "type": "string"
+        }
+      },
+      "required": [
+        "prompt"
+      ],
+      "type": "object"
+    }
+  },
+  {
     "Name": "run_skill",
     "Description": "Invoke a playbook from the Skills index pinned in the system prompt. For the built-in subagent skills (explore / research / review / security_review), prefer the dedicated top-level tools of the same name — they're easier to pick and do the same thing. Pass `name` as the BARE identifier (e.g. 'explore'), NOT the `[🧬 subagent]` tag that follows it in the index. `[🧬 subagent]` skills spawn an isolated subagent — only the final distilled answer returns; supply `arguments` describing the concrete task since the subagent has no other context. Untagged skills are inlined: the body becomes a tool result you read and follow.",
     "ReadOnly": false,

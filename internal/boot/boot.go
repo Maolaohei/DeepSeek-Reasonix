@@ -265,9 +265,9 @@ func build(ctx context.Context, opts Options) (*BuildResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	// One-time import of v1/v0.5 legacy config — runs before Load so the freshly
-	// written config + ~/.env are picked up this same boot. CLI Run also calls this
-	// before config-only commands; this call stays as the shared frontend fallback.
+	// One-time import of v1/v0.5 legacy config — runs before Load so the
+	// freshly written config + ~/.env are picked up this same boot (CLI Run
+	// also calls this before config-only commands).
 	migrated, migErr := config.MigrateLegacyIfNeededForRoot(root)
 	stepLimitsMigrated, stepLimitMigErr := config.MigrateLegacyAgentStepLimitsForRoot(root)
 	redactToolOutputMigrated, redactToolOutputMigErr := config.MigrateLegacyRedactToolOutputForRoot(root)
@@ -279,8 +279,7 @@ func build(ctx context.Context, opts Options) (*BuildResult, error) {
 	applyRuntimeAutoPricingCurrency(cfg, opts.AutoPricingCurrency)
 	// Arm the credential-protection layers from the user-global [secrets]
 	// section before any tool, hook, or plugin subprocess can spawn. Package
-	// globals are correct here because [secrets] is user-global (project
-	// reasonix.toml cannot override it), so concurrent workspaces agree.
+	// globals are correct here: [secrets] is user-global, so workspaces agree.
 	secrets.SetFilterSubprocessEnv(cfg.Secrets.FilterSubprocessEnv)
 	secrets.SetProtectSensitiveFiles(cfg.Secrets.ProtectSensitiveFiles)
 	secrets.RegisterCredentialEnvKeys(cfg.CredentialEnvNames())
@@ -1149,6 +1148,7 @@ func build(ctx context.Context, opts Options) (*BuildResult, error) {
 		reg.Add(agent.NewParallelTasksTool(taskTool, reg))
 		reg.Add(agent.NewFleetTool(taskTool))
 		reg.Add(agent.NewSubagentResultTool(taskTool))
+		reg.Add(agent.NewRLMTool(taskTool)) // drops with task tools under ablation
 		return "enabled task."
 	}
 	addReadOnlyTaskTool := func() string {

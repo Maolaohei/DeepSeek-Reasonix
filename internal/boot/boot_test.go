@@ -739,9 +739,8 @@ func requestToolDescriptionContains(req provider.Request, name, want string) boo
 	return strings.Contains(requestToolDescription(req, name), want)
 }
 
-// TestBuildRunSkillSubagentRegistryHonorsReadOnlyFlag proves the registry split
-// for user-defined subagent skills: a plain skill keeps writer tools, while a
-// `read-only: true` skill is stripped to research tools plus read-only bash.
+// TestBuildRunSkillSubagentRegistryHonorsReadOnlyFlag proves the registry
+// split: plain skills keep writer tools, read-only skills get research only.
 func TestBuildRunSkillSubagentRegistryHonorsReadOnlyFlag(t *testing.T) {
 	isolateConfigHome(t)
 	dir := robustTempDir(t)
@@ -2219,6 +2218,7 @@ func defaultFullBootToolNames() []string {
 		"remember",
 		"research",
 		"review",
+		"rlm",
 		"run_skill",
 		"security_review",
 		"slash_command",

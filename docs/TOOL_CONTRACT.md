@@ -100,7 +100,7 @@ those direct tools are installed, connected, or refreshed.
 `list_peers`, `list_sessions`, `lsp_definition`, `lsp_diagnostics`, `lsp_hover`,
 `lsp_references`, `memory`, `message_peer`, `parallel_tasks`, `read_only_skill`,
 `read_only_task`, `read_session`, `read_skill`, `read_subagent_result`, `refine`, `remember`, `research`,
-`review`, `run_skill`, `security_review`, `slash_command`, `task`.
+`review`, `rlm`, `run_skill`, `security_review`, `slash_command`, `task`.
 
 `refine` runs a Continual Harness pass from the trajectory — the model persists
 small, evidence-backed prompt notes, memories, skills, or subagent specs

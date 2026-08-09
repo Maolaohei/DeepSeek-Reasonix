@@ -3,8 +3,8 @@
     "banner": 15,
     "commented-code": 0,
     "complexity": 2109,
-    "essay": 4163,
-    "file-size": 116595,
+    "essay": 4161,
+    "file-size": 116589,
     "function-size": 9288,
     "layering": 1,
     "marker": 0,
@@ -27,8 +27,8 @@
     },
     "desktop/app.go": {
       "complexity": 63,
-      "essay": 96,
-      "file-size": 11601,
+      "essay": 95,
+      "file-size": 11597,
       "function-size": 381
     },
     "desktop/app_autosave_test.go": {
@@ -84,7 +84,7 @@
       "essay": 2
     },
     "desktop/frontend/src/App.tsx": {
-      "file-size": 4763
+      "file-size": 4764
     },
     "desktop/frontend/src/__tests__/app-chrome-tabs.test.ts": {
       "test-file-size": 19
@@ -141,7 +141,7 @@
       "file-size": 6960
     },
     "desktop/frontend/src/components/StatusBar.tsx": {
-      "file-size": 22
+      "file-size": 20
     },
     "desktop/frontend/src/components/ThemeGallery.tsx": {
       "file-size": 489
@@ -174,7 +174,7 @@
       "file-size": 1423
     },
     "desktop/frontend/src/lib/useController.ts": {
-      "file-size": 3916
+      "file-size": 3915
     },
     "desktop/frontend/wailsjs/go/main/App.d.ts": {
       "file-size": 4
@@ -1531,9 +1531,6 @@
     },
     "internal/pluginpkg/pluginpkg_test.go": {
       "test-file-size": 67
-    },
-    "internal/pluginpkg/state_lock_test.go": {
-      "essay": 1
     },
     "internal/proc/kill_other.go": {
       "essay": 1
